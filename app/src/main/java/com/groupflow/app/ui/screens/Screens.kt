@@ -16,7 +16,9 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
@@ -28,6 +30,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.material3.ExperimentalMaterial3Api
 import com.groupflow.app.service.FirebaseAuthService
+import com.groupflow.app.service.SpeechRecognitionHelper
 import com.groupflow.app.data.local.entity.Reminder
 import com.groupflow.app.data.local.entity.ReminderPriority
 import com.groupflow.app.ui.viewmodel.ReminderViewModel
@@ -463,6 +466,12 @@ fun TasksScreen(
     // Voice input state for logged-in users
     var voiceInput by remember { mutableStateOf("") }
     var isListening by remember { mutableStateOf(false) }
+    var detectedLanguage by remember { mutableStateOf("en-US") }
+    
+    // Speech recognition helper
+    val speechRecognitionHelper = remember { SpeechRecognitionHelper(context) }
+    
+    val coroutineScope = rememberCoroutineScope()
     
     // Increment app open count
     LaunchedEffect(Unit) {
@@ -548,8 +557,30 @@ fun TasksScreen(
                                 shape = CircleShape
                             )
                             .clickable {
-                                // TODO: Implement voice recognition
-                                isListening = !isListening
+                                coroutineScope.launch {
+                                    if (!isListening) {
+                                        isListening = true
+                                        val success = speechRecognitionHelper.startListening(
+                                            onResult = { result ->
+                                                voiceInput = result
+                                                // Auto-detect language from input
+                                                detectedLanguage = when {
+                                                    result.any { it.code in 0x0900..0x097F } -> "hi-IN"
+                                                    result.any { it.code in 0x0000..0x007F } -> "en-US"
+                                                    result.any { it.code in 0x0080..0x00FF } -> "es-ES"
+                                                    else -> "en-US"
+                                                }
+                                            },
+                                            language = detectedLanguage
+                                        )
+                                        if (!success) {
+                                            isListening = false
+                                        }
+                                    } else {
+                                        speechRecognitionHelper.stopListening()
+                                        isListening = false
+                                    }
+                                }
                             },
                         contentAlignment = Alignment.Center
                     ) {
@@ -664,7 +695,7 @@ fun TasksScreen(
             Card(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(16.dp, top = 8.dp, bottom = 16.dp),
+                    .padding(16.dp, top = 8.dp, bottom = 50.dp),
                 colors = CardDefaults.cardColors(
                     containerColor = MaterialTheme.colorScheme.primaryContainer
                 )

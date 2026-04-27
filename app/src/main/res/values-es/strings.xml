@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Smart-Reminder</string>
+    <string name="reminders">Recordatorios</string>
+    <string name="add_reminder">Añadir recordatorio</string>
+    <string name="title">Título</string>
+    <string name="description">Descripción</string>
+    <string name="time">Hora</string>
+    <string name="priority">Prioridad</string>
+    <string name="urgent">Urgente</string>
+    <string name="high">Alta</string>
+    <string name="medium">Media</string>
+    <string name="low">Baja</string>
+    <string name="save">Guardar</string>
+    <string name="cancel">Cancelar</string>
+    <string name="delete">Eliminar</string>
+    <string name="edit">Editar</string>
+    <string name="profile">Perfil</string>
+    <string name="settings">Configuración</string>
+    <string name="sign_in">Iniciar sesión</string>
+    <string name="sign_out">Cerrar sesión</string>
+    <string name="voice_input">Entrada de voz</string>
+    <string name="tap_to_speak">Toca para hablar</string>
+    <string name="listening">Escuchando…</string>
+    <string name="daily_progress">Progreso diario</string>
+    <string name="completed">Completado</string>
+    <string name="no_reminders">Sin recordatorios</string>
+    <string name="sign_in_for_ai">Inicia sesión para usar recordatorios de voz con IA</string>
+</resources>
