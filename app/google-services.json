@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "380347093634",
+    "project_id": "reminder-smart-official",
+    "storage_bucket": "reminder-smart-official.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:380347093634:android:1efb275a5bd6e73bac1a9b",
+        "android_client_info": {
+          "package_name": "com.groupflow.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDTiHCbaRcdb4EO0J8ZDSsD3wIsL8Zieqc"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
