@@ -57,10 +57,10 @@ fun SignInScreen(
             if (idToken != null) {
                 // Handle sign-in with Firebase
                 scope.launch {
+                    errorMessage = null
                     val authResult = firebaseAuthService.handleGoogleSignInResult(idToken)
                     if (authResult.isSuccess) {
                         onSignInSuccess()
-                        errorMessage = null
                     } else {
                         errorMessage = authResult.exceptionOrNull()?.message ?: "Authentication failed"
                     }
@@ -157,6 +157,7 @@ fun SignInScreen(
             // Google Sign-In Button
             Button(
                 onClick = {
+                    errorMessage = null
                     val signInIntent = firebaseAuthService.getGoogleSignInIntent()
                     googleSignInLauncher.launch(signInIntent)
                 },

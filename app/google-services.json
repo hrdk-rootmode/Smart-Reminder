@@ -1,6 +1,7 @@
 {
   "project_info": {
     "project_number": "380347093634",
+    "firebase_url": "https://reminder-smart-official-default-rtdb.asia-southeast1.firebasedatabase.app",
     "project_id": "reminder-smart-official",
     "storage_bucket": "reminder-smart-official.firebasestorage.app"
   },
@@ -12,7 +13,20 @@
           "package_name": "com.groupflow.app"
         }
       },
-      "oauth_client": [],
+      "oauth_client": [
+        {
+          "client_id": "380347093634-ckkbt6bbth8hih8sb0johmj20er2qn0l.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "com.groupflow.app",
+            "certificate_hash": "30b3d782ef371e1a745b9f695c1b9c2c26505a3b"
+          }
+        },
+        {
+          "client_id": "380347093634-uvf1etg85i44g192erof0aea44msr4q5.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
       "api_key": [
         {
           "current_key": "AIzaSyDTiHCbaRcdb4EO0J8ZDSsD3wIsL8Zieqc"
@@ -20,7 +34,12 @@
       ],
       "services": {
         "appinvite_service": {
-          "other_platform_oauth_client": []
+          "other_platform_oauth_client": [
+            {
+              "client_id": "380347093634-uvf1etg85i44g192erof0aea44msr4q5.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
         }
       }
     }
