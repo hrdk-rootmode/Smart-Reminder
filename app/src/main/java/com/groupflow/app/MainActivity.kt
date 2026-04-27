@@ -38,6 +38,12 @@ class MainActivity : ComponentActivity() {
     ) { isGranted: Boolean ->
         // Permission granted or denied
     }
+    
+    private val requestRecordAudioLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { isGranted: Boolean ->
+        // Permission granted or denied
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -52,6 +58,15 @@ class MainActivity : ComponentActivity() {
             ) {
                 requestPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
             }
+        }
+        
+        // Request record audio permission
+        if (ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.RECORD_AUDIO
+            ) != PackageManager.PERMISSION_GRANTED
+        ) {
+            requestRecordAudioLauncher.launch(Manifest.permission.RECORD_AUDIO)
         }
 
         // Create notification channel
