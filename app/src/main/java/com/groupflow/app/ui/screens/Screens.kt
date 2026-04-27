@@ -1,14 +1,17 @@
 package com.groupflow.app.ui.screens
 
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -17,9 +20,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.material3.ExperimentalMaterial3Api
 import com.groupflow.app.service.FirebaseAuthService
@@ -442,9 +447,29 @@ fun GroupsScreen(
 @Composable
 fun TasksScreen(
     viewModel: ReminderViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
-    onAddReminder: () -> Unit = {}
+    onAddReminder: () -> Unit = {},
+    onSignIn: () -> Unit = {},
+    isGuest: Boolean = true
 ) {
     val reminders by viewModel.getUserReminders().collectAsState(initial = emptyList<Reminder>())
+    val context = LocalContext.current
+    val sharedPreferences = remember { context.getSharedPreferences("guest_prefs", android.content.Context.MODE_PRIVATE) }
+    
+    // Track banner dismissals and app opens
+    val appOpenCount by remember { mutableStateOf(sharedPreferences.getInt("app_open_count", 0)) }
+    val bannerDismissed by remember { mutableStateOf(sharedPreferences.getBoolean("banner_dismissed", false)) }
+    var showBanner by remember { mutableStateOf(!bannerDismissed || appOpenCount % 3 == 0) }
+    
+    // Voice input state for logged-in users
+    var voiceInput by remember { mutableStateOf("") }
+    var isListening by remember { mutableStateOf(false) }
+    
+    // Increment app open count
+    LaunchedEffect(Unit) {
+        sharedPreferences.edit()
+            .putInt("app_open_count", appOpenCount + 1)
+            .apply()
+    }
     
     // Calculate progress
     val completedCount = reminders.count { it.status.name == "COMPLETED" }
@@ -486,8 +511,83 @@ fun TasksScreen(
             }
         }
         
+        // Voice input section for logged-in users
+        if (!isGuest) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp, top = 8.dp, bottom = 8.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer
+                )
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(24.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    Text(
+                        text = "🎤 Tell me your reminder",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    
+                    // Large microphone button
+                    Box(
+                        modifier = Modifier
+                            .size(120.dp)
+                            .background(
+                                brush = Brush.radialGradient(
+                                    colors = listOf(
+                                        MaterialTheme.colorScheme.primary,
+                                        MaterialTheme.colorScheme.secondary
+                                    )
+                                ),
+                                shape = CircleShape
+                            )
+                            .clickable {
+                                // TODO: Implement voice recognition
+                                isListening = !isListening
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = if (isListening) Icons.Default.Phone else Icons.Default.Add,
+                            contentDescription = "Voice Input",
+                            modifier = Modifier.size(56.dp),
+                            tint = Color.White
+                        )
+                    }
+                    
+                    Text(
+                        text = if (isListening) "Listening..." else "Tap to speak",
+                        style = MaterialTheme.typography.titleSmall,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                    
+                    Text(
+                        text = "or type below",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onPrimaryContainer
+                    )
+                    
+                    // Manual input fallback
+                    OutlinedTextField(
+                        value = voiceInput,
+                        onValueChange = { voiceInput = it },
+                        label = { Text("Or type your reminder here") },
+                        modifier = Modifier.fillMaxWidth(),
+                        leadingIcon = { Icon(Icons.Default.Edit, contentDescription = "Edit") },
+                        singleLine = true
+                    )
+                }
+            }
+        }
+        
         LazyColumn(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.weight(1f),
             contentPadding = PaddingValues(16.dp, top = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
@@ -554,6 +654,67 @@ fun TasksScreen(
                             onDelete = { viewModel.deleteReminder(reminder) },
                             onSnooze = { viewModel.snoozeReminder(reminder.reminderId, System.currentTimeMillis() + 15 * 60 * 1000) }
                         )
+                    }
+                }
+            }
+        }
+        
+        // Sign in banner for guest users
+        if (isGuest && showBanner) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(16.dp, top = 8.dp, bottom = 16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer
+                )
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(
+                            text = "🚀",
+                            style = MaterialTheme.typography.titleLarge
+                        )
+                        Column {
+                            Text(
+                                text = "Sign in to use AI voice reminders",
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                text = "Unlock voice input, multi-language support & more",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        }
+                    }
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        IconButton(onClick = {
+                            showBanner = false
+                            sharedPreferences.edit()
+                                .putBoolean("banner_dismissed", true)
+                                .apply()
+                        }) {
+                            Icon(Icons.Default.Close, contentDescription = "Dismiss")
+                        }
+                        Button(
+                            onClick = onSignIn,
+                            modifier = Modifier.height(36.dp)
+                        ) {
+                            Text("Sign In", style = MaterialTheme.typography.labelMedium)
+                        }
                     }
                 }
             }

@@ -154,7 +154,13 @@ fun GroupFlowNavGraph(
             composable(Screen.Tasks.route) {
                 TasksScreen(
                     viewModel = reminderViewModel,
-                    onAddReminder = { showAddDialog = true }
+                    onAddReminder = { showAddDialog = true },
+                    onSignIn = {
+                        navController.navigate(Screen.SignIn.route) {
+                            popUpTo(Screen.SignIn.route) { inclusive = true }
+                        }
+                    },
+                    isGuest = !isLoggedIn
                 )
             }
             composable(Screen.Chats.route) {
