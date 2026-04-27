@@ -26,11 +26,15 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.material3.ExperimentalMaterial3Api
 import com.groupflow.app.service.FirebaseAuthService
 import com.groupflow.app.service.SpeechRecognitionHelper
+import com.groupflow.app.service.GeminiAIService
 import com.groupflow.app.data.local.entity.Reminder
 import com.groupflow.app.data.local.entity.ReminderPriority
 import com.groupflow.app.ui.viewmodel.ReminderViewModel
@@ -471,6 +475,9 @@ fun TasksScreen(
     // Speech recognition helper
     val speechRecognitionHelper = remember { SpeechRecognitionHelper(context) }
     
+    // Gemini AI service for parsing
+    val geminiAIService = remember { GeminiAIService(context).apply { initialize() } }
+    
     val coroutineScope = rememberCoroutineScope()
     
     // Increment app open count
@@ -611,7 +618,46 @@ fun TasksScreen(
                         label = { Text("Or type your reminder here") },
                         modifier = Modifier.fillMaxWidth(),
                         leadingIcon = { Icon(Icons.Default.Edit, contentDescription = "Edit") },
-                        singleLine = true
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                        keyboardActions = KeyboardActions(
+                            onDone = {
+                                // Process the voice input when done is pressed
+                                if (voiceInput.isNotBlank()) {
+                                    coroutineScope.launch {
+                                        try {
+                                            val result = geminiAIService.parseReminder(voiceInput, viewModel.currentUserId.value)
+                                            result.onSuccess { parsedReminder ->
+                                                // Create reminder using ViewModel
+                                                viewModel.createReminder(
+                                                    title = parsedReminder.title,
+                                                    description = parsedReminder.description,
+                                                    triggerTime = parsedReminder.triggerTime,
+                                                    priority = when(parsedReminder.priority) {
+                                                        "URGENT" -> ReminderPriority.URGENT
+                                                        "HIGH" -> ReminderPriority.HIGH
+                                                        "LOW" -> ReminderPriority.LOW
+                                                        else -> ReminderPriority.MEDIUM
+                                                    },
+                                                    isRecurring = parsedReminder.isRecurring
+                                                )
+                                                voiceInput = ""
+                                            }
+                                        } catch (e: Exception) {
+                                            // Fallback: create simple reminder
+                                            viewModel.createReminder(
+                                                title = voiceInput,
+                                                description = "",
+                                                triggerTime = System.currentTimeMillis() + 3600000, // 1 hour from now
+                                                priority = ReminderPriority.MEDIUM,
+                                                isRecurring = false
+                                            )
+                                            voiceInput = ""
+                                        }
+                                    }
+                                }
+                            }
+                        )
                     )
                 }
             }
