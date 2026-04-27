@@ -23,9 +23,8 @@ import kotlinx.coroutines.tasks.await
 class FirebaseAuthService(private val context: Context) {
 
     companion object {
-        // TODO: Replace with your actual Firebase Web Client ID
-        // Get this from: Firebase Console → Project Settings → Your apps → Android app → Web Client ID
-        private const val WEB_CLIENT_ID = "YOUR_WEB_CLIENT_ID_HERE"
+        // Web Client ID from Firebase Console
+        private const val WEB_CLIENT_ID = "380347093634-uvf1etg85i44g192erof0aea44msr4q5.apps.googleusercontent.com"
     }
 
     private val firebaseAuth: FirebaseAuth = FirebaseAuth.getInstance()
