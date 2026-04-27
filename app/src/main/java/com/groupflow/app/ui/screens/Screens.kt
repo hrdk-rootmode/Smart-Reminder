@@ -7,6 +7,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -16,6 +17,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.unit.dp
 import androidx.compose.material3.ExperimentalMaterial3Api
+import com.groupflow.app.service.FirebaseAuthService
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -1111,7 +1113,11 @@ fun FileCard(name: String, size: String, type: String) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ProfileScreen() {
+fun ProfileScreen(
+    firebaseAuthService: FirebaseAuthService,
+    onLogout: () -> Unit
+) {
+    val currentUser by firebaseAuthService.currentUser.collectAsState(initial = null)
     Scaffold(
         topBar = {
             TopAppBar(
@@ -1145,11 +1151,11 @@ fun ProfileScreen() {
                             )
                             Column {
                                 Text(
-                                    text = "User Name",
+                                    text = currentUser?.displayName ?: "Guest User",
                                     style = MaterialTheme.typography.titleLarge
                                 )
                                 Text(
-                                    text = "user@email.com",
+                                    text = currentUser?.email ?: "guest@local",
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -1181,7 +1187,7 @@ fun ProfileScreen() {
                         SettingItem(
                             icon = Icons.Default.Email,
                             title = "Email",
-                            subtitle = "user@email.com",
+                            subtitle = currentUser?.email ?: "guest@local",
                             onClick = {}
                         )
                         HorizontalDivider()
@@ -1260,20 +1266,20 @@ fun ProfileScreen() {
                                     style = MaterialTheme.typography.titleMedium
                                 )
                                 Text(
-                                    text = "2.4 GB of 15 GB",
+                                    text = "0 MB / 15 GB",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
                             Text(
-                                text = "16%",
+                                text = "0%",
                                 style = MaterialTheme.typography.headlineSmall,
                                 color = MaterialTheme.colorScheme.primary
                             )
                         }
                         Spacer(modifier = Modifier.height(8.dp))
                         LinearProgressIndicator(
-                            progress = 0.16f,
+                            progress = 0f,
                             modifier = Modifier.fillMaxWidth()
                         )
                     }
@@ -1334,7 +1340,8 @@ fun SettingItem(
     icon: ImageVector,
     title: String,
     subtitle: String? = null,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    iconTint: androidx.compose.ui.graphics.Color = MaterialTheme.colorScheme.onSurfaceVariant
 ) {
     Row(
         modifier = Modifier
@@ -1346,7 +1353,7 @@ fun SettingItem(
         Icon(
             icon,
             contentDescription = null,
-            tint = MaterialTheme.colorScheme.onSurfaceVariant
+            tint = iconTint
         )
         Column(modifier = Modifier.weight(1f)) {
             Text(

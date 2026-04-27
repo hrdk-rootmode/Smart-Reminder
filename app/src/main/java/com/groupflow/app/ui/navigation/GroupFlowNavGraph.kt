@@ -110,7 +110,15 @@ fun GroupFlowNavGraph(
                 ChatsScreen()
             }
             composable(Screen.Profile.route) {
-                ProfileScreen()
+                ProfileScreen(
+                    firebaseAuthService = firebaseAuthService,
+                    onLogout = {
+                        firebaseAuthService.signOut()
+                        navController.navigate(Screen.SignIn.route) {
+                            popUpTo(navController.graph.startDestinationId) { inclusive = true }
+                        }
+                    }
+                )
             }
             composable(Screen.ChatDetail.route) { backStackEntry ->
                 val groupId = backStackEntry.arguments?.getString("groupId") ?: ""

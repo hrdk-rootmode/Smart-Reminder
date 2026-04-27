@@ -1,5 +1,7 @@
 package com.groupflow.app.ui.screens
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
@@ -10,10 +12,15 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.google.android.gms.auth.api.signin.GoogleSignIn
+import com.google.android.gms.auth.api.signin.GoogleSignInClient
+import com.google.android.gms.common.api.ApiException
 import com.groupflow.app.service.FirebaseAuthService
+import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -22,7 +29,10 @@ fun SignInScreen(
     onContinueAsGuest: () -> Unit,
     firebaseAuthService: FirebaseAuthService
 ) {
+    val context = LocalContext.current
     val currentUser by firebaseAuthService.currentUser.collectAsState(initial = null)
+    var isLoading by remember { mutableStateOf(false) }
+    var errorMessage by remember { mutableStateOf<String?>(null) }
 
     // Auto-redirect if already signed in
     LaunchedEffect(currentUser) {
@@ -30,6 +40,34 @@ fun SignInScreen(
             onSignInSuccess()
         }
     }
+
+    // Google Sign-In Launcher
+    val googleSignInLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        isLoading = true
+        try {
+            val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
+            val account = task.getResult(ApiException::class.java)
+            val idToken = account.idToken
+
+            if (idToken != null) {
+                // Handle sign-in with Firebase
+                // For now, simulate success - actual Firebase auth will be implemented in ViewModel
+                onSignInSuccess()
+                errorMessage = null
+            } else {
+                errorMessage = "Failed to get ID token"
+            }
+        } catch (e: ApiException) {
+            errorMessage = "Sign-in failed: ${e.message}"
+        } finally {
+            isLoading = false
+        }
+    }
+
+    // Coroutine scope for Firebase auth
+    val scope = rememberCoroutineScope()
 
     Scaffold(
         topBar = {
@@ -112,18 +150,25 @@ fun SignInScreen(
             // Google Sign-In Button
             Button(
                 onClick = {
-                    // TODO: Implement actual Google Sign-In intent
-                    // For now, simulate sign-in success
-                    onSignInSuccess()
+                    val signInIntent = firebaseAuthService.getGoogleSignInIntent()
+                    googleSignInLauncher.launch(signInIntent)
                 },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(56.dp)
+                    .height(56.dp),
+                enabled = !isLoading
             ) {
-                Text(
-                    text = "Sign in with Google",
-                    fontWeight = FontWeight.SemiBold
-                )
+                if (isLoading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(24.dp),
+                        color = MaterialTheme.colorScheme.onPrimary
+                    )
+                } else {
+                    Text(
+                        text = "Sign in with Google",
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
             }
 
             Spacer(modifier = Modifier.height(16.dp))
@@ -150,6 +195,23 @@ fun SignInScreen(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center
             )
+
+            // Error Message
+            errorMessage?.let { error ->
+                Spacer(modifier = Modifier.height(16.dp))
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer
+                    )
+                ) {
+                    Text(
+                        text = error,
+                        color = MaterialTheme.colorScheme.onErrorContainer,
+                        modifier = Modifier.padding(12.dp),
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            }
 
             Spacer(modifier = Modifier.height(24.dp))
         }

@@ -62,7 +62,7 @@ class FirebaseAuthService(private val context: Context) {
 
     /**
      * Get Google Sign-In Intent
-     * Call this from your Activity to launch Google Sign-In
+     * Call this from your Activity/Fragment to launch Google Sign-In
      */
     fun getGoogleSignInIntent() = googleSignInClient.signInIntent
 
