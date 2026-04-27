@@ -41,6 +41,9 @@ fun SignInScreen(
         }
     }
 
+    // Coroutine scope for Firebase auth
+    val scope = rememberCoroutineScope()
+
     // Google Sign-In Launcher
     val googleSignInLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.StartActivityForResult()
@@ -53,21 +56,25 @@ fun SignInScreen(
 
             if (idToken != null) {
                 // Handle sign-in with Firebase
-                // For now, simulate success - actual Firebase auth will be implemented in ViewModel
-                onSignInSuccess()
-                errorMessage = null
+                scope.launch {
+                    val authResult = firebaseAuthService.handleGoogleSignInResult(idToken)
+                    if (authResult.isSuccess) {
+                        onSignInSuccess()
+                        errorMessage = null
+                    } else {
+                        errorMessage = authResult.exceptionOrNull()?.message ?: "Authentication failed"
+                    }
+                    isLoading = false
+                }
             } else {
                 errorMessage = "Failed to get ID token"
+                isLoading = false
             }
         } catch (e: ApiException) {
             errorMessage = "Sign-in failed: ${e.message}"
-        } finally {
             isLoading = false
         }
     }
-
-    // Coroutine scope for Firebase auth
-    val scope = rememberCoroutineScope()
 
     Scaffold(
         topBar = {
