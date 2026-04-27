@@ -7,8 +7,13 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -21,6 +26,10 @@ import com.groupflow.app.ui.screens.ChatsScreen
 import com.groupflow.app.ui.screens.ProfileScreen
 import com.groupflow.app.ui.screens.ChatDetailScreen
 import com.groupflow.app.ui.screens.SignInScreen
+import com.groupflow.app.ui.screens.AddReminderDialog
+import com.groupflow.app.ui.viewmodel.ReminderViewModel
+import com.groupflow.app.data.local.entity.ReminderPriority
+import java.util.Calendar
 
 sealed class Screen(val route: String, val title: String, val iconSelected: ImageVector, val iconUnselected: ImageVector) {
     object SignIn : Screen("signin", "Sign In", Icons.Filled.Person, Icons.Outlined.Person)
@@ -31,13 +40,19 @@ sealed class Screen(val route: String, val title: String, val iconSelected: Imag
     object ChatDetail : Screen("chat/{groupId}", "Chat", Icons.Default.Send, Icons.Default.Send) { fun createRoute(groupId: String) = "chat/$groupId" }
 }
 
-val bottomNavScreens = listOf(
-    Screen.Groups,
-    Screen.Tasks,
-    Screen.Chats,
-    Screen.Profile
-)
+// Guest users only see Tasks tab, logged-in users see all tabs
+fun getBottomNavScreens(isLoggedIn: Boolean) = if (isLoggedIn) {
+    listOf(
+        Screen.Groups,
+        Screen.Tasks,
+        Screen.Chats,
+        Screen.Profile
+    )
+} else {
+    listOf(Screen.Tasks, Screen.Profile)
+}
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun GroupFlowNavGraph(
     navController: NavHostController = rememberNavController(),
@@ -46,11 +61,44 @@ fun GroupFlowNavGraph(
     val backStackEntry = navController.currentBackStackEntryAsState()
     val currentRoute = backStackEntry.value?.destination?.route
     val currentUser by firebaseAuthService.currentUser.collectAsState(initial = null)
+    val reminderViewModel: ReminderViewModel = viewModel()
+
+    // Update user ID in ReminderViewModel when user changes
+    currentUser?.let {
+        reminderViewModel.setUserId(it.uid)
+    }
 
     // Check if user is authenticated
-    val startDestination = if (currentUser != null) Screen.Groups.route else Screen.SignIn.route
+    val startDestination = if (currentUser != null) Screen.Groups.route else Screen.Tasks.route
+    val isLoggedIn = currentUser != null
+    val bottomNavScreens = getBottomNavScreens(isLoggedIn)
+    
+    // Add reminder dialog state
+    var showAddDialog by remember { mutableStateOf(false) }
 
     Scaffold(
+        topBar = {
+            if (currentRoute == Screen.Tasks.route) {
+                TopAppBar(
+                    title = { Text("Reminders") },
+                    actions = {
+                        IconButton(onClick = { }) {
+                            Icon(Icons.Default.Search, contentDescription = "Search")
+                        }
+                    }
+                )
+            }
+        },
+        floatingActionButton = {
+            if (currentRoute == Screen.Tasks.route) {
+                FloatingActionButton(
+                    onClick = { showAddDialog = true },
+                    containerColor = MaterialTheme.colorScheme.primary
+                ) {
+                    Icon(Icons.Default.Add, contentDescription = "Add Reminder")
+                }
+            }
+        },
         bottomBar = {
             if (currentRoute in bottomNavScreens.map { it.route }) {
                 NavigationBar {
@@ -91,7 +139,7 @@ fun GroupFlowNavGraph(
                         }
                     },
                     onContinueAsGuest = {
-                        navController.navigate(Screen.Groups.route) {
+                        navController.navigate(Screen.Tasks.route) {
                             popUpTo(Screen.SignIn.route) { inclusive = true }
                         }
                     },
@@ -104,7 +152,10 @@ fun GroupFlowNavGraph(
                 )
             }
             composable(Screen.Tasks.route) {
-                TasksScreen()
+                TasksScreen(
+                    viewModel = reminderViewModel,
+                    onAddReminder = { showAddDialog = true }
+                )
             }
             composable(Screen.Chats.route) {
                 ChatsScreen()
@@ -115,7 +166,12 @@ fun GroupFlowNavGraph(
                     onLogout = {
                         firebaseAuthService.signOut()
                         navController.navigate(Screen.SignIn.route) {
-                            popUpTo(navController.graph.startDestinationId) { inclusive = true }
+                            popUpTo(Screen.SignIn.route) { inclusive = true }
+                        }
+                    },
+                    onSignIn = {
+                        navController.navigate(Screen.SignIn.route) {
+                            popUpTo(Screen.SignIn.route) { inclusive = true }
                         }
                     }
                 )
@@ -128,5 +184,15 @@ fun GroupFlowNavGraph(
                 )
             }
         }
+    }
+    
+    if (showAddDialog) {
+        AddReminderDialog(
+            onDismiss = { showAddDialog = false },
+            onAdd = { title, description, triggerTime, priority ->
+                reminderViewModel.createReminder(title, description, triggerTime, priority)
+                showAddDialog = false
+            }
+        )
     }
 }

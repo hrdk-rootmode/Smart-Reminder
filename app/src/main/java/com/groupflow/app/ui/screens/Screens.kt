@@ -1,5 +1,7 @@
 package com.groupflow.app.ui.screens
 
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -14,10 +16,20 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.material3.ExperimentalMaterial3Api
 import com.groupflow.app.service.FirebaseAuthService
+import com.groupflow.app.data.local.entity.Reminder
+import com.groupflow.app.data.local.entity.ReminderPriority
+import com.groupflow.app.ui.viewmodel.ReminderViewModel
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Date
+import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -428,81 +440,121 @@ fun GroupsScreen(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TasksScreen() {
-    var selectedFilter by remember { mutableStateOf("All") }
-    val filters = listOf("All", "Todo", "In Progress", "Completed")
+fun TasksScreen(
+    viewModel: ReminderViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
+    onAddReminder: () -> Unit = {}
+) {
+    val reminders by viewModel.getUserReminders().collectAsState(initial = emptyList<Reminder>())
     
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("Tasks") },
-                actions = {
-                    IconButton(onClick = { }) {
-                        Icon(Icons.Default.Search, contentDescription = "Search")
-                    }
-                    IconButton(onClick = { }) {
-                        Icon(Icons.Default.Search, contentDescription = "Filter")
-                    }
+    // Calculate progress
+    val completedCount = reminders.count { it.status.name == "COMPLETED" }
+    val totalCount = reminders.size
+    val progress = if (totalCount > 0) completedCount.toFloat() / totalCount else 0f
+    
+    Column(
+        modifier = Modifier.fillMaxSize()
+    ) {
+        // Progress tracking display
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp, top = 16.dp, bottom = 8.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Daily Progress",
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    Text(
+                        text = "$completedCount/$totalCount completed",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.primary
+                    )
                 }
-            )
-        },
-        floatingActionButton = {
-            FloatingActionButton(onClick = { }) {
-                Icon(Icons.Default.Add, contentDescription = "Add Task")
+                Spacer(modifier = Modifier.height(8.dp))
+                LinearProgressIndicator(
+                    progress = { progress },
+                    modifier = Modifier.fillMaxWidth()
+                )
             }
         }
-    ) { padding ->
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(padding)
+        
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            contentPadding = PaddingValues(16.dp, top = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            ScrollableTabRow(
-                selectedTabIndex = filters.indexOf(selectedFilter),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                filters.forEach { filter ->
-                    Tab(
-                        selected = selectedFilter == filter,
-                        onClick = { selectedFilter = filter },
-                        text = { Text(filter) }
-                    )
-                }
-            }
-            
-            LazyColumn(
-                modifier = Modifier.fillMaxSize(),
-                contentPadding = PaddingValues(16.dp),
-                verticalArrangement = Arrangement.spacedBy(12.dp)
-            ) {
+            if (reminders.isNullOrEmpty()) {
                 item {
-                    Text(
-                        text = "Today",
-                        style = MaterialTheme.typography.titleMedium
-                    )
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center,
+                    ) {
+                        Spacer(modifier = Modifier.height(80.dp))
+                        Icon(
+                            Icons.Default.Notifications,
+                            contentDescription = null,
+                            modifier = Modifier.size(64.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(16.dp))
+                        Text(
+                            text = "No reminders yet",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text(
+                            text = "Tap the + button to add your first reminder",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            } else {
+                // Group reminders by date
+                val groupedReminders: Map<String, List<Reminder>> = reminders.groupBy { reminder ->
+                    val calendar = java.util.Calendar.getInstance()
+                    calendar.timeInMillis = reminder.triggerTime
+                    val today = java.util.Calendar.getInstance()
+                    val tomorrow = java.util.Calendar.getInstance().apply { add(java.util.Calendar.DAY_OF_MONTH, 1) }
+                    
+                    when {
+                        calendar.get(java.util.Calendar.YEAR) == today.get(java.util.Calendar.YEAR) &&
+                        calendar.get(java.util.Calendar.DAY_OF_YEAR) == today.get(java.util.Calendar.DAY_OF_YEAR) -> "Today"
+                        calendar.get(java.util.Calendar.YEAR) == tomorrow.get(java.util.Calendar.YEAR) &&
+                        calendar.get(java.util.Calendar.DAY_OF_YEAR) == tomorrow.get(java.util.Calendar.DAY_OF_YEAR) -> "Tomorrow"
+                        calendar.get(java.util.Calendar.YEAR) == today.get(java.util.Calendar.YEAR) &&
+                        calendar.get(java.util.Calendar.WEEK_OF_YEAR) == today.get(java.util.Calendar.WEEK_OF_YEAR) -> "This Week"
+                        else -> "Later"
+                    }
                 }
                 
-                items(listOf(
-                    Quadruple("Complete project proposal", "High Priority", "Tomorrow, 5:00 PM", "You"),
-                    Quadruple("Review meeting notes", "Medium Priority", "Friday, 2:00 PM", "Team"),
-                    Quadruple("Send weekly report", "Low Priority", "Monday, 9:00 AM", "You")
-                )) { (title, priority, due, assigned) ->
-                    TaskCard(title = title, priority = priority, dueDate = due, assignee = assigned)
-                }
-                
-                item {
-                    Text(
-                        text = "This Week",
-                        style = MaterialTheme.typography.titleMedium
-                    )
-                }
-                
-                items(listOf(
-                    Quadruple("Prepare presentation", "High Priority", "Wednesday, 3:00 PM", "You"),
-                    Quadruple("Team meeting", "Medium Priority", "Thursday, 10:00 AM", "All"),
-                    Quadruple("Update documentation", "Low Priority", "Friday, 4:00 PM", "You")
-                )) { (title, priority, due, assigned) ->
-                    TaskCard(title = title, priority = priority, dueDate = due, assignee = assigned)
+                groupedReminders.forEach { (dateGroup, dateReminders) ->
+                    item {
+                        Text(
+                            text = dateGroup,
+                            style = MaterialTheme.typography.titleMedium,
+                            modifier = Modifier.padding(vertical = 8.dp)
+                        )
+                    }
+                    
+                    items(dateReminders) { reminder ->
+                        ReminderItem(
+                            reminder = reminder,
+                            onComplete = { viewModel.markAsCompleted(reminder.reminderId) },
+                            onDelete = { viewModel.deleteReminder(reminder) },
+                            onSnooze = { viewModel.snoozeReminder(reminder.reminderId, System.currentTimeMillis() + 15 * 60 * 1000) }
+                        )
+                    }
                 }
             }
         }
@@ -1115,9 +1167,14 @@ fun FileCard(name: String, size: String, type: String) {
 @Composable
 fun ProfileScreen(
     firebaseAuthService: FirebaseAuthService,
-    onLogout: () -> Unit
+    onLogout: () -> Unit,
+    onSignIn: () -> Unit = {}
 ) {
     val currentUser by firebaseAuthService.currentUser.collectAsState(initial = null)
+    val context = LocalContext.current
+    val sharedPreferences = remember { context.getSharedPreferences("reminder_prefs", android.content.Context.MODE_PRIVATE) }
+    var alarmSoundEnabled by remember { mutableStateOf(sharedPreferences.getBoolean("alarm_sound_enabled", true)) }
+    
     Scaffold(
         topBar = {
             TopAppBar(
@@ -1129,7 +1186,7 @@ fun ProfileScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding),
-            contentPadding = PaddingValues(16.dp),
+            contentPadding = PaddingValues(16.dp, bottom = 80.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
             item {
@@ -1244,6 +1301,55 @@ fun ProfileScreen(
             
             item {
                 Text(
+                    text = "Notifications",
+                    style = MaterialTheme.typography.titleMedium
+                )
+            }
+            
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(
+                        modifier = Modifier.padding(16.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column {
+                                Text(
+                                    text = "Alarm Sound",
+                                    style = MaterialTheme.typography.bodyLarge
+                                )
+                                Text(
+                                    text = "Play sound for reminder notifications",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            var alarmSoundEnabled by remember { 
+                                mutableStateOf(
+                                    sharedPreferences.getBoolean("alarm_sound_enabled", true)
+                                ) 
+                            }
+                            Switch(
+                                checked = alarmSoundEnabled,
+                                onCheckedChange = { enabled ->
+                                    alarmSoundEnabled = enabled
+                                    sharedPreferences.edit()
+                                        .putBoolean("alarm_sound_enabled", enabled)
+                                        .apply()
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+            
+            item {
+                Text(
                     text = "Storage",
                     style = MaterialTheme.typography.titleMedium
                 )
@@ -1321,14 +1427,23 @@ fun ProfileScreen(
             }
             
             item {
-                OutlinedButton(
-                    onClick = {},
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.outlinedButtonColors(
-                        contentColor = MaterialTheme.colorScheme.error
-                    )
-                ) {
-                    Text("Sign Out")
+                if (currentUser != null) {
+                    OutlinedButton(
+                        onClick = onLogout,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.outlinedButtonColors(
+                            contentColor = MaterialTheme.colorScheme.error
+                        )
+                    ) {
+                        Text("Sign Out")
+                    }
+                } else {
+                    Button(
+                        onClick = onSignIn,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("Sign In")
+                    }
                 }
             }
         }
@@ -1363,7 +1478,7 @@ fun SettingItem(
             if (subtitle != null) {
                 Text(
                     text = subtitle,
-                    style = MaterialTheme.typography.bodySmall,
+                    style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
@@ -1374,4 +1489,319 @@ fun SettingItem(
             tint = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
+}
+
+@Composable
+fun ReminderItem(
+    reminder: Reminder,
+    onComplete: () -> Unit,
+    onDelete: () -> Unit,
+    onSnooze: () -> Unit
+) {
+    var showMenu by remember { mutableStateOf(false) }
+    
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = when (reminder.priority) {
+                ReminderPriority.URGENT -> MaterialTheme.colorScheme.errorContainer
+                ReminderPriority.HIGH -> MaterialTheme.colorScheme.tertiaryContainer
+                ReminderPriority.MEDIUM -> MaterialTheme.colorScheme.secondaryContainer
+                ReminderPriority.LOW -> MaterialTheme.colorScheme.surface
+            }
+        )
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Checkbox(
+                checked = reminder.status.name == "COMPLETED",
+                onCheckedChange = { if (it) onComplete() }
+            )
+            
+            Column(
+                modifier = Modifier.weight(1f)
+            ) {
+                Text(
+                    text = reminder.title,
+                    style = MaterialTheme.typography.bodyLarge,
+                    textDecoration = if (reminder.status.name == "COMPLETED") androidx.compose.ui.text.style.TextDecoration.LineThrough else null
+                )
+                if (reminder.description.isNotEmpty()) {
+                    Text(
+                        text = reminder.description,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Text(
+                    text = formatDateTime(reminder.triggerTime),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+            
+            Box {
+                IconButton(onClick = { showMenu = true }) {
+                    Icon(Icons.Default.MoreVert, contentDescription = "More")
+                }
+                DropdownMenu(
+                    expanded = showMenu,
+                    onDismissRequest = { showMenu = false }
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Snooze") },
+                        onClick = {
+                            onSnooze()
+                            showMenu = false
+                        },
+                        leadingIcon = { Icon(Icons.Default.Refresh, contentDescription = null) }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Delete") },
+                        onClick = {
+                            onDelete()
+                            showMenu = false
+                        },
+                        leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null) }
+                    )
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AddReminderDialog(
+    onDismiss: () -> Unit,
+    onAdd: (title: String, description: String, triggerTime: Long, priority: ReminderPriority) -> Unit
+) {
+    var title by remember { mutableStateOf("") }
+    var description by remember { mutableStateOf("") }
+    
+    // Initialize with current time
+    val calendar = Calendar.getInstance()
+    var selectedHour by remember { mutableStateOf(calendar.get(Calendar.HOUR)) }
+    var selectedMinute by remember { mutableStateOf(calendar.get(Calendar.MINUTE)) }
+    var isAM by remember { mutableStateOf(calendar.get(Calendar.AM_PM) == Calendar.AM) }
+    var selectedPriority by remember { mutableStateOf(ReminderPriority.MEDIUM) }
+    var showTimePicker by remember { mutableStateOf(false) }
+    
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { 
+            Text(
+                "Add Reminder",
+                style = MaterialTheme.typography.titleLarge
+            ) 
+        },
+        text = {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                OutlinedTextField(
+                    value = title,
+                    onValueChange = { title = it },
+                    label = { Text("Title") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+                
+                OutlinedTextField(
+                    value = description,
+                    onValueChange = { description = it },
+                    label = { Text("Description (optional)") },
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 2,
+                    maxLines = 2
+                )
+                
+                // Time Display - Click to open time picker
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = { showTimePicker = true }
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Time", style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            "${selectedHour.toString().padStart(2, '0')}:${selectedMinute.toString().padStart(2, '0')} ${if (isAM) "AM" else "PM"}",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+                
+                // Priority - Radio buttons in 2x2 grid
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text("Priority", style = MaterialTheme.typography.bodyMedium)
+                    
+                    Column {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            ReminderPriority.values().slice(0..1).forEach { priority ->
+                                Row(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clickable { selectedPriority = priority },
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    RadioButton(
+                                        selected = selectedPriority == priority,
+                                        onClick = { selectedPriority = priority }
+                                    )
+                                    Text(
+                                        priority.name,
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
+                                }
+                            }
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            ReminderPriority.values().slice(2..3).forEach { priority ->
+                                Row(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clickable { selectedPriority = priority },
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    RadioButton(
+                                        selected = selectedPriority == priority,
+                                        onClick = { selectedPriority = priority }
+                                    )
+                                    Text(
+                                        priority.name,
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    if (title.isNotBlank()) {
+                        val calendar = Calendar.getInstance()
+                        val hour24 = if (isAM) {
+                            if (selectedHour == 12) 0 else selectedHour
+                        } else {
+                            if (selectedHour == 12) 12 else selectedHour + 12
+                        }
+                        calendar.set(Calendar.HOUR_OF_DAY, hour24)
+                        calendar.set(Calendar.MINUTE, selectedMinute)
+                        calendar.set(Calendar.SECOND, 0)
+                        
+                        if (calendar.timeInMillis < System.currentTimeMillis()) {
+                            calendar.add(Calendar.DAY_OF_MONTH, 1)
+                        }
+                        
+                        onAdd(title, description, calendar.timeInMillis, selectedPriority)
+                    }
+                },
+                enabled = title.isNotBlank()
+            ) {
+                Text("Add")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
+    
+    if (showTimePicker) {
+        AlertDialog(
+            onDismissRequest = { showTimePicker = false },
+            title = { Text("Select Time") },
+            text = {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    // Hour Slider
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text("Hour: $selectedHour")
+                        Slider(
+                            value = selectedHour.toFloat(),
+                            onValueChange = { selectedHour = it.toInt() },
+                            valueRange = if (isAM) 1f..11f else 1f..12f,
+                            steps = if (isAM) 10 else 11,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                    
+                    // Minute Slider
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text("Minute: ${selectedMinute.toString().padStart(2, '0')}")
+                        Slider(
+                            value = selectedMinute.toFloat(),
+                            onValueChange = { selectedMinute = it.toInt() },
+                            valueRange = 0f..59f,
+                            steps = 59,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                    
+                    // AM/PM Toggle
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = { isAM = true },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (isAM) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface
+                            )
+                        ) {
+                            Text("AM")
+                        }
+                        Button(
+                            onClick = { isAM = false },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (!isAM) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface
+                            )
+                        ) {
+                            Text("PM")
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(onClick = { showTimePicker = false }) {
+                    Text("Done")
+                }
+            }
+        )
+    }
+}
+
+fun formatDateTime(timestamp: Long): String {
+    val sdf = SimpleDateFormat("MMM dd, yyyy HH:mm", Locale.getDefault())
+    return sdf.format(Date(timestamp))
 }
