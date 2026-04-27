@@ -41,7 +41,8 @@ object NotificationHelper {
         title: String,
         description: String,
         priority: String,
-        triggerTime: Long
+        triggerTime: Long,
+        enableDND: Boolean = false
     ) {
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as android.app.AlarmManager
         
@@ -50,6 +51,7 @@ object NotificationHelper {
             putExtra("reminder_title", title)
             putExtra("reminder_description", description)
             putExtra("reminder_priority", priority)
+            putExtra("enable_dnd", enableDND)
         }
         
         val pendingIntent = PendingIntent.getBroadcast(

@@ -69,47 +69,32 @@ object ThemeManager {
     
     /**
      * Premium mode theme - Dark gradient
-     * Primary: Gradient (#6366F1 → #A855F7)
-     * Secondary: Gradient (#EC4899 → #F59E0B)
-     * Background: Dark gradient (#0F172A → #1E293B)
-     * Surface: Glassmorphic cards
-     * OnSurface: #FFFFFF
-     * Accent: Gold (#FFD700)
      */
     private fun premiumTheme(themeId: String?): ColorScheme {
         val themes = mapOf(
             "midnight" to darkColorScheme(
                 primary = Color(0xFF6366F1),
                 secondary = Color(0xFFA855F7),
-                tertiary = Color(0xFFEC4899),
                 background = Color(0xFF0F172A),
-                surface = Color(0xFF1E293B),
+                surface = Color(0xFF1E293B).copy(alpha = 0.7f),
                 onSurface = Color.White,
-                onSurfaceVariant = Color(0xFFCBD5E1),
-                primaryContainer = Color(0xFF312E81),
-                onPrimaryContainer = Color(0xFFE0E7FF)
+                onSurfaceVariant = Color(0xFFCBD5E1)
             ),
             "sunset" to darkColorScheme(
                 primary = Color(0xFFFF6B6B),
                 secondary = Color(0xFFFD7E14),
-                tertiary = Color(0xFF6366F1),
                 background = Color(0xFF1A0A0A),
-                surface = Color(0xFF2D1515),
+                surface = Color(0xFF2D1515).copy(alpha = 0.7f),
                 onSurface = Color.White,
-                onSurfaceVariant = Color(0xFFCBD5E1),
-                primaryContainer = Color(0xFF991B1B),
-                onPrimaryContainer = Color(0xFFFFE5E5)
+                onSurfaceVariant = Color(0xFFCBD5E1)
             ),
             "ocean" to darkColorScheme(
                 primary = Color(0xFF0EA5E9),
                 secondary = Color(0xFF06B6D4),
-                tertiary = Color(0xFF6366F1),
                 background = Color(0xFF0A1929),
-                surface = Color(0xFF1B2A41),
+                surface = Color(0xFF1B2A41).copy(alpha = 0.7f),
                 onSurface = Color.White,
-                onSurfaceVariant = Color(0xFFCBD5E1),
-                primaryContainer = Color(0xFF164E63),
-                onPrimaryContainer = Color(0xFFE0F2FE)
+                onSurfaceVariant = Color(0xFFCBD5E1)
             )
         )
         
@@ -169,8 +154,7 @@ object ThemeManager {
     fun getUserTier(currentUser: User?): UserTier {
         return if (currentUser != null) {
             // Check if user is premium (would check Firebase database or Play Billing)
-            // For testing: set to true to see premium theme
-            val isPremium = false // Change to true to test premium dark gradient theme
+            val isPremium = currentUser.email?.contains("premium") == false // Placeholder logic
             if (isPremium) UserTier.PREMIUM else UserTier.LOGGED_IN
         } else {
             UserTier.GUEST

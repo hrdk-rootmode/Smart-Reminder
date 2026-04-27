@@ -200,6 +200,11 @@ class GeminiAIService(private val context: Context) {
                 val priorityStr = extractField(jsonText, "priority") ?: "MEDIUM"
                 val detectedLanguage = extractField(jsonText, "detectedLanguage") ?: "en"
                 
+                // Detect DND command from input
+                val enableDND = input.lowercase().contains("do not disturb") || 
+                                 input.lowercase().contains("dnd") ||
+                                 input.lowercase().contains("silent")
+                
                 // Calculate trigger time based on input (simplified)
                 val triggerTime = calculateTriggerTime(input, currentTime)
                 
@@ -209,7 +214,8 @@ class GeminiAIService(private val context: Context) {
                     triggerTime = triggerTime,
                     priority = priorityStr,
                     isRecurring = false,
-                    detectedLanguage = detectedLanguage
+                    detectedLanguage = detectedLanguage,
+                    enableDND = enableDND
                 ))
             } else {
                 Result.failure(Exception("No response from Gemini AI"))
@@ -226,32 +232,129 @@ class GeminiAIService(private val context: Context) {
     }
     
     private fun calculateTriggerTime(input: String, currentTime: String): Long {
-        // Simplified time calculation - in production, use proper NLP
         val calendar = Calendar.getInstance()
+        val lowerInput = input.lowercase()
         
+        // Handle relative time expressions
         when {
-            input.contains("tomorrow", ignoreCase = true) -> {
+            // Minutes
+            lowerInput.contains("after 5 minute") || lowerInput.contains("in 5 minute") -> {
+                calendar.add(Calendar.MINUTE, 5)
+            }
+            lowerInput.contains("after 10 minute") || lowerInput.contains("in 10 minute") -> {
+                calendar.add(Calendar.MINUTE, 10)
+            }
+            lowerInput.contains("after 15 minute") || lowerInput.contains("in 15 minute") -> {
+                calendar.add(Calendar.MINUTE, 15)
+            }
+            lowerInput.contains("after 30 minute") || lowerInput.contains("in 30 minute") -> {
+                calendar.add(Calendar.MINUTE, 30)
+            }
+            // Hours
+            lowerInput.contains("after 1 hour") || lowerInput.contains("in 1 hour") -> {
+                calendar.add(Calendar.HOUR_OF_DAY, 1)
+            }
+            lowerInput.contains("after 2 hour") || lowerInput.contains("in 2 hour") -> {
+                calendar.add(Calendar.HOUR_OF_DAY, 2)
+            }
+            lowerInput.contains("after 3 hour") || lowerInput.contains("in 3 hour") -> {
+                calendar.add(Calendar.HOUR_OF_DAY, 3)
+            }
+            // Days
+            lowerInput.contains("after 1 day") || lowerInput.contains("in 1 day") || lowerInput.contains("tomorrow") -> {
                 calendar.add(Calendar.DAY_OF_YEAR, 1)
                 calendar.set(Calendar.HOUR_OF_DAY, 9)
                 calendar.set(Calendar.MINUTE, 0)
             }
-            input.contains("morning", ignoreCase = true) -> {
+            lowerInput.contains("after 2 day") || lowerInput.contains("in 2 day") -> {
+                calendar.add(Calendar.DAY_OF_YEAR, 2)
+                calendar.set(Calendar.HOUR_OF_DAY, 9)
+                calendar.set(Calendar.MINUTE, 0)
+            }
+            lowerInput.contains("after 3 day") || lowerInput.contains("in 3 day") -> {
+                calendar.add(Calendar.DAY_OF_YEAR, 3)
+                calendar.set(Calendar.HOUR_OF_DAY, 9)
+                calendar.set(Calendar.MINUTE, 0)
+            }
+            lowerInput.contains("after 7 day") || lowerInput.contains("in 7 day") || lowerInput.contains("next week") -> {
+                calendar.add(Calendar.DAY_OF_YEAR, 7)
+                calendar.set(Calendar.HOUR_OF_DAY, 9)
+                calendar.set(Calendar.MINUTE, 0)
+            }
+            // Days of week
+            lowerInput.contains("next monday") -> {
+                calendar.add(Calendar.DAY_OF_YEAR, getDaysUntil(Calendar.MONDAY))
+                calendar.set(Calendar.HOUR_OF_DAY, 9)
+                calendar.set(Calendar.MINUTE, 0)
+            }
+            lowerInput.contains("next tuesday") -> {
+                calendar.add(Calendar.DAY_OF_YEAR, getDaysUntil(Calendar.TUESDAY))
+                calendar.set(Calendar.HOUR_OF_DAY, 9)
+                calendar.set(Calendar.MINUTE, 0)
+            }
+            lowerInput.contains("next wednesday") -> {
+                calendar.add(Calendar.DAY_OF_YEAR, getDaysUntil(Calendar.WEDNESDAY))
+                calendar.set(Calendar.HOUR_OF_DAY, 9)
+                calendar.set(Calendar.MINUTE, 0)
+            }
+            lowerInput.contains("next thursday") -> {
+                calendar.add(Calendar.DAY_OF_YEAR, getDaysUntil(Calendar.THURSDAY))
+                calendar.set(Calendar.HOUR_OF_DAY, 9)
+                calendar.set(Calendar.MINUTE, 0)
+            }
+            lowerInput.contains("next friday") -> {
+                calendar.add(Calendar.DAY_OF_YEAR, getDaysUntil(Calendar.FRIDAY))
+                calendar.set(Calendar.HOUR_OF_DAY, 9)
+                calendar.set(Calendar.MINUTE, 0)
+            }
+            lowerInput.contains("next saturday") -> {
+                calendar.add(Calendar.DAY_OF_YEAR, getDaysUntil(Calendar.SATURDAY))
+                calendar.set(Calendar.HOUR_OF_DAY, 10)
+                calendar.set(Calendar.MINUTE, 0)
+            }
+            lowerInput.contains("next sunday") -> {
+                calendar.add(Calendar.DAY_OF_YEAR, getDaysUntil(Calendar.SUNDAY))
+                calendar.set(Calendar.HOUR_OF_DAY, 10)
+                calendar.set(Calendar.MINUTE, 0)
+            }
+            // Time of day
+            lowerInput.contains("morning") -> {
                 calendar.set(Calendar.HOUR_OF_DAY, 8)
                 calendar.set(Calendar.MINUTE, 0)
             }
-            input.contains("evening", ignoreCase = true) -> {
+            lowerInput.contains("afternoon") -> {
+                calendar.set(Calendar.HOUR_OF_DAY, 14)
+                calendar.set(Calendar.MINUTE, 0)
+            }
+            lowerInput.contains("evening") -> {
                 calendar.set(Calendar.HOUR_OF_DAY, 18)
                 calendar.set(Calendar.MINUTE, 0)
             }
-            input.contains("urgent", ignoreCase = true) -> {
+            lowerInput.contains("night") -> {
+                calendar.set(Calendar.HOUR_OF_DAY, 20)
+                calendar.set(Calendar.MINUTE, 0)
+            }
+            lowerInput.contains("wakeup") || lowerInput.contains("wake up") -> {
+                calendar.set(Calendar.HOUR_OF_DAY, 7)
+                calendar.set(Calendar.MINUTE, 0)
+            }
+            // Urgent
+            lowerInput.contains("urgent") -> {
                 calendar.add(Calendar.MINUTE, 30)
             }
+            // Default
             else -> {
-                calendar.add(Calendar.HOUR, 1)
+                calendar.add(Calendar.HOUR_OF_DAY, 1)
             }
         }
         
         return calendar.timeInMillis
+    }
+    
+    private fun getDaysUntil(targetDay: Int): Int {
+        val currentDay = Calendar.getInstance().get(Calendar.DAY_OF_WEEK)
+        val daysUntil = targetDay - currentDay
+        return if (daysUntil <= 0) daysUntil + 7 else daysUntil
     }
 
     /**
@@ -281,6 +384,7 @@ class GeminiAIService(private val context: Context) {
         val triggerTime: Long,
         val priority: String,
         val isRecurring: Boolean,
-        val detectedLanguage: String
+        val detectedLanguage: String,
+        val enableDND: Boolean = false
     )
 }

@@ -91,7 +91,19 @@ class SpeechRecognitionHelper(private val context: Context) {
                 }
                 
                 override fun onError(error: Int) {
-                    Log.e("SpeechRecognition", "Error: $error")
+                    val errorMessage = when (error) {
+                        android.speech.SpeechRecognizer.ERROR_AUDIO -> "Audio recording error"
+                        android.speech.SpeechRecognizer.ERROR_CLIENT -> "Client side error"
+                        android.speech.SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "Insufficient permissions"
+                        android.speech.SpeechRecognizer.ERROR_NETWORK -> "Network error"
+                        android.speech.SpeechRecognizer.ERROR_NETWORK_TIMEOUT -> "Network timeout"
+                        android.speech.SpeechRecognizer.ERROR_NO_MATCH -> "No speech input detected"
+                        android.speech.SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "Recognition service busy"
+                        android.speech.SpeechRecognizer.ERROR_SERVER -> "Server error"
+                        android.speech.SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "No speech input"
+                        else -> "Unknown error: $error"
+                    }
+                    Log.e("SpeechRecognition", "Error: $error - $errorMessage")
                     continuation.resume(false)
                 }
                 

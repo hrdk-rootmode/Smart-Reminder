@@ -14,6 +14,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.groupflow.app.MainActivity
 import com.groupflow.app.R
+import com.groupflow.app.service.DoNotDisturbManager
 
 class ReminderReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
@@ -23,8 +24,9 @@ class ReminderReceiver : BroadcastReceiver() {
         val reminderTitle = intent.getStringExtra("reminder_title") ?: return
         val reminderDescription = intent.getStringExtra("reminder_description") ?: ""
         val reminderPriority = intent.getStringExtra("reminder_priority") ?: "MEDIUM"
+        val enableDND = intent.getBooleanExtra("enable_dnd", false)
 
-        Log.d("ReminderReceiver", "Reminder: $reminderTitle, Priority: $reminderPriority")
+        Log.d("ReminderReceiver", "Reminder: $reminderTitle, Priority: $reminderPriority, DND: $enableDND")
 
         // Check if alarm sound is enabled
         val sharedPreferences = context.getSharedPreferences("reminder_prefs", MODE_PRIVATE)
@@ -49,6 +51,13 @@ class ReminderReceiver : BroadcastReceiver() {
         // Show notification
         val notificationManager = NotificationManagerCompat.from(context)
         notificationManager.notify(reminderId.hashCode(), notification)
+        
+        // Restore DND if it was enabled
+        if (enableDND) {
+            val dndManager = DoNotDisturbManager(context)
+            dndManager.disableDND()
+            Log.d("ReminderReceiver", "DND disabled after reminder")
+        }
         
         Log.d("ReminderReceiver", "Notification shown")
     }
