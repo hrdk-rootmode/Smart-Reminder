@@ -15,6 +15,7 @@ import com.groupflow.app.data.local.entity.MemberRole
 import com.groupflow.app.data.local.entity.Message
 import com.groupflow.app.data.local.entity.Reminder
 import com.groupflow.app.data.local.entity.ReminderPriority
+import com.groupflow.app.data.local.entity.ReminderStatus
 import com.groupflow.app.data.local.entity.Task
 import com.groupflow.app.data.local.entity.TaskStatus
 import com.groupflow.app.data.local.entity.User
@@ -175,7 +176,7 @@ interface AnnouncementDao {
 
 @Dao
 interface ReminderDao {
-    @Query("SELECT * FROM reminders WHERE userId = :userId AND status = 'ACTIVE' ORDER BY triggerTime ASC")
+    @Query("SELECT * FROM reminders WHERE userId = :userId AND status != 'CANCELLED' AND status != 'EXPIRED' ORDER BY triggerTime ASC")
     fun getUserReminders(userId: String): Flow<List<Reminder>>
 
     @Query(
@@ -234,6 +235,15 @@ interface ReminderDao {
         """
     )
     suspend fun markAsCompleted(reminderId: String, completedAt: Long)
+
+    @Query(
+        """
+        UPDATE reminders
+        SET status = :status, lastModified = :lastModified
+        WHERE reminderId = :reminderId
+        """
+    )
+    suspend fun updateReminderStatus(reminderId: String, status: ReminderStatus, lastModified: Long)
 
     @Query(
         """

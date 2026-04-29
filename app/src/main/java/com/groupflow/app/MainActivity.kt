@@ -1,9 +1,13 @@
 package com.groupflow.app
 
 import android.Manifest
+import android.app.Activity
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.speech.RecognizerIntent
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -32,6 +36,9 @@ import com.groupflow.app.ui.theme.ThemeManager
 
 class MainActivity : ComponentActivity() {
     private lateinit var firebaseAuthService: FirebaseAuthService
+    
+    // Speech result stored here for composables to read
+    var speechResult: String? = null
 
     private val requestPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -43,6 +50,33 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.RequestPermission()
     ) { isGranted: Boolean ->
         // Permission granted or denied
+    }
+    
+    // Speech recognition launcher - uses the reliable Intent-based approach
+    val speechRecognizerLauncher = registerForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) { result ->
+        if (result.resultCode == Activity.RESULT_OK && result.data != null) {
+            val matches = result.data?.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS)
+            if (!matches.isNullOrEmpty()) {
+                speechResult = matches[0]
+                Log.d("MainActivity", "Speech recognized: ${matches[0]}")
+            }
+        } else {
+            speechResult = null
+            Log.d("MainActivity", "Speech recognition cancelled or failed")
+        }
+    }
+    
+    fun launchSpeechRecognizer(language: String = "en-US") {
+        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+            putExtra(RecognizerIntent.EXTRA_LANGUAGE, language)
+            putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak your reminder...")
+            putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+        }
+        speechResult = null  // Reset previous result
+        speechRecognizerLauncher.launch(intent)
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {

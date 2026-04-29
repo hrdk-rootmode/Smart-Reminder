@@ -16,9 +16,18 @@ object NotificationHelper {
     const val CHANNEL_ID = "reminder_channel"
     const val CHANNEL_NAME = "Reminders"
     const val CHANNEL_DESCRIPTION = "Notification channel for reminders"
+    const val URGENT_CHANNEL_ID = "urgent_reminder_channel"
+    const val URGENT_CHANNEL_NAME = "Urgent Reminders"
+    const val URGENT_CHANNEL_DESCRIPTION = "High-priority notifications that cannot be missed"
 
     fun createNotificationChannel(context: Context) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            // Delete existing channels first to ensure sound is updated
+            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            notificationManager.deleteNotificationChannel(CHANNEL_ID)
+            notificationManager.deleteNotificationChannel(URGENT_CHANNEL_ID)
+            
+            // Standard reminder channel with sound
             val channel = NotificationChannel(
                 CHANNEL_ID,
                 CHANNEL_NAME,
@@ -26,12 +35,42 @@ object NotificationHelper {
             ).apply {
                 description = CHANNEL_DESCRIPTION
                 enableVibration(true)
+                vibrationPattern = longArrayOf(0, 500, 200, 500, 200, 500)
                 enableLights(true)
+                // Set default notification sound
+                val soundUri = android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_NOTIFICATION)
+                setSound(soundUri, android.media.AudioAttributes.Builder()
+                    .setUsage(android.media.AudioAttributes.USAGE_NOTIFICATION)
+                    .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .build())
+                // Ensure sound is enabled
+                enableVibration(true)
             }
             
-            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            // Urgent/High priority channel - maximum importance with alarm sound
+            val urgentChannel = NotificationChannel(
+                URGENT_CHANNEL_ID,
+                URGENT_CHANNEL_NAME,
+                NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = URGENT_CHANNEL_DESCRIPTION
+                enableVibration(true)
+                vibrationPattern = longArrayOf(0, 500, 200, 500, 200, 500)
+                enableLights(true)
+                lockscreenVisibility = android.app.Notification.VISIBILITY_PUBLIC
+                setBypassDnd(true)
+                // Use alarm sound for urgent notifications
+                val alarmSoundUri = android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_ALARM)
+                    ?: android.media.RingtoneManager.getDefaultUri(android.media.RingtoneManager.TYPE_NOTIFICATION)
+                setSound(alarmSoundUri, android.media.AudioAttributes.Builder()
+                    .setUsage(android.media.AudioAttributes.USAGE_ALARM)
+                    .setContentType(android.media.AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .build())
+            }
+            
             notificationManager.createNotificationChannel(channel)
-            Log.d("NotificationHelper", "Notification channel created")
+            notificationManager.createNotificationChannel(urgentChannel)
+            Log.d("NotificationHelper", "Notification channels recreated with sound")
         }
     }
 
@@ -42,7 +81,9 @@ object NotificationHelper {
         description: String,
         priority: String,
         triggerTime: Long,
-        enableDND: Boolean = false
+        enableDND: Boolean = false,
+        appPackageName: String? = null,
+        endTime: Long? = null
     ) {
         val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as android.app.AlarmManager
         
@@ -52,6 +93,7 @@ object NotificationHelper {
             putExtra("reminder_description", description)
             putExtra("reminder_priority", priority)
             putExtra("enable_dnd", enableDND)
+            putExtra("app_package_name", appPackageName)
         }
         
         val pendingIntent = PendingIntent.getBroadcast(
@@ -61,7 +103,7 @@ object NotificationHelper {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
         
-        Log.d("NotificationHelper", "Scheduling reminder: $title at $triggerTime")
+        Log.d("NotificationHelper", "Scheduling reminder: $title at $triggerTime, app: $appPackageName")
         
         // Schedule main reminder
         try {
@@ -79,6 +121,40 @@ object NotificationHelper {
                 triggerTime,
                 pendingIntent
             )
+        }
+        
+        // Schedule close reminder if endTime is specified
+        if (endTime != null && appPackageName != null) {
+            val closeIntent = Intent(context, com.groupflow.app.receiver.ReminderReceiver::class.java).apply {
+                putExtra("reminder_id", reminderId)
+                putExtra("reminder_title", "Close ${com.groupflow.app.service.AppAutomationHelper(context).getAppName(appPackageName)}")
+                putExtra("reminder_description", "Time to close the app")
+                putExtra("reminder_priority", "MEDIUM")
+                putExtra("is_close_reminder", true)
+                putExtra("app_package_name", appPackageName)
+            }
+            
+            val closePendingIntent = PendingIntent.getBroadcast(
+                context,
+                reminderId.hashCode() + 1000,
+                closeIntent,
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+            )
+            
+            try {
+                alarmManager.setExactAndAllowWhileIdle(
+                    android.app.AlarmManager.RTC_WAKEUP,
+                    endTime,
+                    closePendingIntent
+                )
+                Log.d("NotificationHelper", "Close reminder scheduled at $endTime")
+            } catch (e: SecurityException) {
+                alarmManager.setAndAllowWhileIdle(
+                    android.app.AlarmManager.RTC_WAKEUP,
+                    endTime,
+                    closePendingIntent
+                )
+            }
         }
         
         // Schedule pre-alert for urgent/high priority if time is more than 6 hours away

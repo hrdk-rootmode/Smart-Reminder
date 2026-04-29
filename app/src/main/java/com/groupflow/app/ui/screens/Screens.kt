@@ -1,15 +1,83 @@
 package com.groupflow.app.ui.screens
 
-import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
-import androidx.compose.material3.*
+import androidx.compose.material.icons.filled.AccountCircle
+import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.Call
+import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Create
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Email
+import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.KeyboardArrowRight
+import androidx.compose.material.icons.filled.Lock
+import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Star
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.AssistChip
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledIconButton
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Slider
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -18,30 +86,44 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.scale
-import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.foundation.text.KeyboardActions
-import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
-import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.unit.TextUnit
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalConfiguration
 import com.groupflow.app.service.FirebaseAuthService
 import com.groupflow.app.service.SpeechRecognitionHelper
 import com.groupflow.app.service.GeminiAIService
 import com.groupflow.app.data.local.entity.Reminder
 import com.groupflow.app.data.local.entity.ReminderPriority
 import com.groupflow.app.ui.viewmodel.ReminderViewModel
+import com.groupflow.app.MainActivity
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+import kotlinx.coroutines.launch
+
+enum class ChatState {
+    IDLE,           // Waiting for user to start
+    ASKING_APP,     // Asking user to select an app
+    ASKING_REMINDER, // Asking "What reminder?"
+    ASKING_TIME,    // Asking for time if not provided
+    ASKING_PRIORITY,// Asking for priority
+    ASKING_SOUND,   // Asking for sound preference
+    LISTENING,      // Waiting for user speech input
+    PROCESSING      // Processing the reminder
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -367,7 +449,9 @@ fun GroupsScreen(
                         Column(modifier = Modifier.weight(1f)) {
                             Text(
                                 text = name,
-                                style = MaterialTheme.typography.titleMedium
+                                style = MaterialTheme.typography.titleMedium,
+                                maxLines = 2,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                             )
                             Row(
                                 horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -388,7 +472,9 @@ fun GroupsScreen(
                             Text(
                                 text = activity,
                                 style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                             )
                         }
                         Icon(
@@ -471,14 +557,50 @@ fun TasksScreen(
     var voiceInput by remember { mutableStateOf("") }
     var isListening by remember { mutableStateOf(false) }
     var detectedLanguage by remember { mutableStateOf("en-US") }
+    var chatState by remember { mutableStateOf(ChatState.IDLE) }
+    var aiQuestion by remember { mutableStateOf("What would you like to be reminded about?") }
+    var pendingSpeechResult by remember { mutableStateOf<String?>(null) }
     
-    // Speech recognition helper
-    val speechRecognitionHelper = remember { SpeechRecognitionHelper(context) }
+    // Conversational state - store user's answers
+    var reminderTitle by remember { mutableStateOf("") }
+    var reminderTime by remember { mutableStateOf<String?>(null) }
+    var reminderPriority by remember { mutableStateOf("MEDIUM") }
+    var reminderSound by remember { mutableStateOf("sound") }
+    var selectedApp by remember { mutableStateOf<com.groupflow.app.service.AppInfo?>(null) }
+    
+    // Chat message history
+    data class ChatMessage(val isUser: Boolean, val text: String)
+    var chatMessages by remember { mutableStateOf(listOf<ChatMessage>()) }
+    
+    // App selection state
+    var showAppSelector by remember { mutableStateOf(false) }
+    var installedApps by remember { mutableStateOf(listOf<com.groupflow.app.service.AppInfo>()) }
+    val appAutomationHelper = remember { com.groupflow.app.service.AppAutomationHelper(context) }
+    
+    // Edit reminder state
+    var showEditDialog by remember { mutableStateOf(false) }
+    var reminderToEdit by remember { mutableStateOf<Reminder?>(null) }
+    
+    // Get MainActivity reference for speech recognition
+    val activity = context as? MainActivity
     
     // Gemini AI service for parsing
     val geminiAIService = remember { GeminiAIService(context).apply { initialize() } }
     
     val coroutineScope = rememberCoroutineScope()
+    
+    // Watch for speech results from MainActivity
+    LaunchedEffect(Unit) {
+        while (true) {
+            val result = activity?.speechResult
+            if (result != null && pendingSpeechResult == null) {
+                pendingSpeechResult = result
+                voiceInput = result
+                activity.speechResult = null  // Consume the result
+            }
+            kotlinx.coroutines.delay(300)
+        }
+    }
     
     // Increment app open count
     LaunchedEffect(Unit) {
@@ -493,178 +615,378 @@ fun TasksScreen(
     val progress = if (totalCount > 0) completedCount.toFloat() / totalCount else 0f
     
     Column(
-        modifier = Modifier.fillMaxSize()
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(top = 60.dp)  // Increased to clear header
     ) {
-        // Progress tracking display
-        Card(
+        // Progress tracking display - compact
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(16.dp, top = 16.dp, bottom = 8.dp)
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Column(
-                modifier = Modifier.padding(16.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(
-                        text = "Daily Progress",
-                        style = MaterialTheme.typography.titleMedium
-                    )
-                    Text(
-                        text = "$completedCount/$totalCount completed",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.primary
-                    )
-                }
-                Spacer(modifier = Modifier.height(8.dp))
-                LinearProgressIndicator(
-                    progress = { progress },
-                    modifier = Modifier.fillMaxWidth()
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = "Daily Progress",
+                    style = MaterialTheme.typography.titleSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                )
+                Text(
+                    text = "$completedCount/$totalCount completed",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary
                 )
             }
+            LinearProgressIndicator(
+                progress = { progress },
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(start = 16.dp)
+            )
         }
         
-        // Voice input section for logged-in users
+        // Conversational AI chat interface for logged-in users
         if (!isGuest) {
-            Card(
+            Column(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(16.dp, top = 8.dp, bottom = 8.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer
-                )
+                    .padding(horizontal = 12.dp, vertical = 4.dp)
             ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
-                ) {
-                    Text(
-                        text = "🎤 Tell me your reminder",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    
-                    // Large microphone button
-                    Box(
+                // Chat message history - shows conversation like a real chat
+                if (chatMessages.isNotEmpty() || chatState != ChatState.IDLE) {
+                    LazyColumn(
                         modifier = Modifier
-                            .size(120.dp)
-                            .background(
-                                brush = Brush.radialGradient(
-                                    colors = listOf(
-                                        MaterialTheme.colorScheme.primary,
-                                        MaterialTheme.colorScheme.secondary
-                                    )
-                                ),
-                                shape = CircleShape
-                            )
-                            .clickable {
-                                coroutineScope.launch {
-                                    if (!isListening) {
-                                        isListening = true
-                                        val success = speechRecognitionHelper.startListening(
-                                            onResult = { result ->
-                                                voiceInput = result
-                                                // Auto-detect language from input
-                                                detectedLanguage = when {
-                                                    result.any { it.code in 0x0900..0x097F } -> "hi-IN"
-                                                    result.any { it.code in 0x0000..0x007F } -> "en-US"
-                                                    result.any { it.code in 0x0080..0x00FF } -> "es-ES"
-                                                    else -> "en-US"
-                                                }
-                                            },
-                                            language = detectedLanguage
-                                        )
-                                        if (!success) {
-                                            isListening = false
-                                        }
-                                    } else {
-                                        speechRecognitionHelper.stopListening()
-                                        isListening = false
-                                    }
-                                }
-                            },
-                        contentAlignment = Alignment.Center
+                            .fillMaxWidth()
+                            .heightIn(max = 200.dp),
+                        reverseLayout = false,
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Icon(
-                            imageVector = if (isListening) Icons.Default.Phone else Icons.Default.Add,
-                            contentDescription = "Voice Input",
-                            modifier = Modifier.size(56.dp),
-                            tint = Color.White
-                        )
-                    }
-                    
-                    Text(
-                        text = if (isListening) "Listening..." else "Tap to speak",
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
-                    
-                    Text(
-                        text = "or type below",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
-                    
-                    // Manual input fallback
-                    OutlinedTextField(
-                        value = voiceInput,
-                        onValueChange = { voiceInput = it },
-                        label = { Text("Or type your reminder here") },
-                        modifier = Modifier.fillMaxWidth(),
-                        leadingIcon = { Icon(Icons.Default.Edit, contentDescription = "Edit") },
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                        keyboardActions = KeyboardActions(
-                            onDone = {
-                                // Process the voice input when done is pressed
-                                if (voiceInput.isNotBlank()) {
-                                    coroutineScope.launch {
-                                        try {
-                                            val result = geminiAIService.parseReminder(voiceInput, viewModel.currentUserId.value)
-                                            result.onSuccess { parsedReminder ->
-                                                // Create reminder using ViewModel
-                                                viewModel.createReminder(
-                                                    title = parsedReminder.title,
-                                                    description = parsedReminder.description,
-                                                    triggerTime = parsedReminder.triggerTime,
-                                                    priority = when(parsedReminder.priority) {
-                                                        "URGENT" -> ReminderPriority.URGENT
-                                                        "HIGH" -> ReminderPriority.HIGH
-                                                        "LOW" -> ReminderPriority.LOW
-                                                        else -> ReminderPriority.MEDIUM
-                                                    },
-                                                    isRecurring = parsedReminder.isRecurring
-                                                )
-                                                voiceInput = ""
-                                            }
-                                        } catch (e: Exception) {
-                                            // Fallback: create simple reminder
-                                            viewModel.createReminder(
-                                                title = voiceInput,
-                                                description = "",
-                                                triggerTime = System.currentTimeMillis() + 3600000, // 1 hour from now
-                                                priority = ReminderPriority.MEDIUM,
-                                                isRecurring = false
-                                            )
-                                            voiceInput = ""
-                                        }
+                        // Show chat messages
+                        items(chatMessages) { message ->
+                            Surface(
+                                modifier = Modifier.fillMaxWidth(0.85f),
+                                shape = RoundedCornerShape(
+                                    topStart = if (message.isUser) 20.dp else 4.dp,
+                                    topEnd = if (message.isUser) 4.dp else 20.dp,
+                                    bottomStart = 20.dp,
+                                    bottomEnd = 20.dp
+                                ),
+                                color = if (message.isUser) 
+                                    MaterialTheme.colorScheme.primary 
+                                else 
+                                    MaterialTheme.colorScheme.primaryContainer,
+                                tonalElevation = 1.dp
+                            ) {
+                                Text(
+                                    text = message.text,
+                                    modifier = Modifier.padding(12.dp),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = if (message.isUser)
+                                        MaterialTheme.colorScheme.onPrimary
+                                    else
+                                        MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                            }
+                        }
+                        
+                        // Show current AI question if not IDLE
+                        if (chatState != ChatState.IDLE && chatState != ChatState.PROCESSING) {
+                            item {
+                                Surface(
+                                    modifier = Modifier.fillMaxWidth(0.85f),
+                                    shape = RoundedCornerShape(
+                                        topStart = 4.dp,
+                                        topEnd = 20.dp,
+                                        bottomStart = 20.dp,
+                                        bottomEnd = 20.dp
+                                    ),
+                                    color = MaterialTheme.colorScheme.primaryContainer,
+                                    tonalElevation = 1.dp
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(12.dp),
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Info,
+                                            contentDescription = "AI",
+                                            tint = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                        Text(
+                                            text = aiQuestion,
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                                        )
                                     }
                                 }
                             }
+                        }
+                    }
+                }
+                
+                // Input bar
+                Surface(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(28.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                    tonalElevation = 2.dp
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 6.dp, vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        // Microphone button
+                        FilledIconButton(
+                            onClick = {
+                                when (chatState) {
+                                    ChatState.IDLE -> {
+                                        // Check if user wants to open an app
+                                        if (voiceInput.lowercase().contains("open app") || 
+                                            voiceInput.lowercase().contains("launch app") ||
+                                            voiceInput.lowercase().contains("start app")) {
+                                            // Show app selector
+                                            installedApps = appAutomationHelper.getAllInstalledApps()
+                                            showAppSelector = true
+                                            chatState = ChatState.ASKING_APP
+                                            aiQuestion = "Select an app to open"
+                                        } else {
+                                            // Start normal reminder conversation
+                                            chatMessages = emptyList()
+                                            chatState = ChatState.ASKING_REMINDER
+                                            aiQuestion = "What would you like to be reminded about?"
+                                            chatMessages = chatMessages + ChatMessage(false, aiQuestion)
+                                        }
+                                    }
+                                    else -> {
+                                        // Launch speech recognizer
+                                        activity?.launchSpeechRecognizer(detectedLanguage)
+                                        chatState = ChatState.LISTENING
+                                    }
+                                }
+                            },
+                            modifier = Modifier.size(42.dp),
+                            colors = IconButtonDefaults.filledIconButtonColors(
+                                containerColor = when (chatState) {
+                                    ChatState.LISTENING -> MaterialTheme.colorScheme.error
+                                    ChatState.ASKING_APP, ChatState.ASKING_REMINDER, ChatState.ASKING_TIME, ChatState.ASKING_PRIORITY, ChatState.ASKING_SOUND -> MaterialTheme.colorScheme.tertiary
+                                    else -> MaterialTheme.colorScheme.primary
+                                }
+                            )
+                        ) {
+                            Icon(
+                                imageVector = when (chatState) {
+                                    ChatState.LISTENING -> Icons.Default.Close
+                                    else -> Icons.Default.Search
+                                },
+                                contentDescription = "Speak",
+                                modifier = Modifier.size(20.dp),
+                                tint = Color.White
+                            )
+                        }
+                        
+                        // Text input field
+                        OutlinedTextField(
+                            value = voiceInput,
+                            onValueChange = { voiceInput = it },
+                            modifier = Modifier.weight(1f),
+                            placeholder = { 
+                                Text(
+                                    when (chatState) {
+                                        ChatState.LISTENING -> "Listening..."
+                                        ChatState.ASKING_APP -> "Type 'open app' to select an app, or your reminder..."
+                                        ChatState.ASKING_REMINDER -> "Type or speak your reminder..."
+                                        ChatState.ASKING_TIME -> "Type or speak the time..."
+                                        ChatState.ASKING_PRIORITY -> "Type or speak priority (low, medium, high, urgent)..."
+                                        ChatState.ASKING_SOUND -> "Type or speak sound preference (ring, vibrate, silent)..."
+                                        ChatState.PROCESSING -> "Creating reminder..."
+                                        else -> "Type 'open app' or your reminder..."
+                                    },
+                                    style = MaterialTheme.typography.bodySmall
+                                ) 
+                            },
+                            singleLine = true,
+                            shape = RoundedCornerShape(20.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = Color.Transparent,
+                                unfocusedBorderColor = Color.Transparent,
+                                focusedContainerColor = Color.Transparent,
+                                unfocusedContainerColor = Color.Transparent
+                            ),
+                            textStyle = MaterialTheme.typography.bodySmall,
+                            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                            keyboardActions = KeyboardActions(
+                                onDone = {
+                                    if (voiceInput.isNotBlank()) {
+                                        coroutineScope.launch {
+                                            processConversationalInput(
+                                                input = voiceInput,
+                                                chatState = chatState,
+                                                geminiAIService = geminiAIService,
+                                                viewModel = viewModel,
+                                                coroutineScope = coroutineScope,
+                                                onStateChange = { chatState = it },
+                                                onQuestionChange = { aiQuestion = it },
+                                                onClearInput = { voiceInput = ""; pendingSpeechResult = null },
+                                                onAddMessage = { isUser, text -> chatMessages = chatMessages + ChatMessage(isUser, text) },
+                                                reminderTitle = reminderTitle,
+                                                onReminderTitleChange = { reminderTitle = it },
+                                                reminderTime = reminderTime,
+                                                onReminderTimeChange = { reminderTime = it },
+                                                reminderPriority = reminderPriority,
+                                                onReminderPriorityChange = { reminderPriority = it },
+                                                reminderSound = reminderSound,
+                                                onReminderSoundChange = { reminderSound = it },
+                                                selectedApp = selectedApp,
+                                                onSelectedAppChange = { selectedApp = it },
+                                                appAutomationHelper = appAutomationHelper,
+                                                onShowAppSelector = { showAppSelector = it },
+                                                onInstalledAppsChange = { installedApps = it }
+                                            )
+                                        }
+                                    }
+                                }
+                            )
                         )
-                    )
+                        
+                        // Send button
+                        FilledIconButton(
+                            onClick = {
+                                if (voiceInput.isNotBlank()) {
+                                    coroutineScope.launch {
+                                        processConversationalInput(
+                                            input = voiceInput,
+                                            chatState = chatState,
+                                            geminiAIService = geminiAIService,
+                                            viewModel = viewModel,
+                                            coroutineScope = coroutineScope,
+                                            onStateChange = { chatState = it },
+                                            onQuestionChange = { aiQuestion = it },
+                                            onClearInput = { voiceInput = ""; pendingSpeechResult = null },
+                                            onAddMessage = { isUser, text -> chatMessages = chatMessages + ChatMessage(isUser, text) },
+                                            reminderTitle = reminderTitle,
+                                            onReminderTitleChange = { reminderTitle = it },
+                                            reminderTime = reminderTime,
+                                            onReminderTimeChange = { reminderTime = it },
+                                            reminderPriority = reminderPriority,
+                                            onReminderPriorityChange = { reminderPriority = it },
+                                            reminderSound = reminderSound,
+                                            onReminderSoundChange = { reminderSound = it },
+                                            selectedApp = selectedApp,
+                                            onSelectedAppChange = { selectedApp = it },
+                                            appAutomationHelper = appAutomationHelper,
+                                            onShowAppSelector = { showAppSelector = it },
+                                            onInstalledAppsChange = { installedApps = it }
+                                        )
+                                    }
+                                }
+                            },
+                            modifier = Modifier.size(42.dp),
+                            colors = IconButtonDefaults.filledIconButtonColors(
+                                containerColor = MaterialTheme.colorScheme.primary
+                            ),
+                            enabled = voiceInput.isNotBlank() && chatState != ChatState.PROCESSING
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Send,
+                                contentDescription = "Send",
+                                modifier = Modifier.size(18.dp),
+                                tint = Color.White
+                            )
+                        }
+                    }
                 }
             }
+        }
+        
+        // App Selector Dialog
+        if (showAppSelector) {
+            AlertDialog(
+                onDismissRequest = { showAppSelector = false },
+                title = { Text("Select an App") },
+                text = {
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 400.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        contentPadding = PaddingValues(8.dp)
+                    ) {
+                        items(installedApps) { app ->
+                            Surface(
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(8.dp),
+                                color = MaterialTheme.colorScheme.surfaceVariant,
+                                onClick = {
+                                    selectedApp = app
+                                    showAppSelector = false
+                                    // Continue with time question
+                                    aiQuestion = "What time should I open ${app.appName}?"
+                                    chatMessages = chatMessages + ChatMessage(false, aiQuestion)
+                                    chatState = ChatState.ASKING_TIME
+                                    voiceInput = ""
+                                    pendingSpeechResult = null
+                                }
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                                ) {
+                                    // Display app icon using Image
+                                    if (app.icon != null) {
+                                        Image(
+                                            bitmap = (app.icon as android.graphics.drawable.BitmapDrawable).bitmap.asImageBitmap(),
+                                            contentDescription = app.appName,
+                                            modifier = Modifier
+                                                .size(40.dp)
+                                                .clip(RoundedCornerShape(8.dp))
+                                        )
+                                    } else {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(40.dp)
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .background(MaterialTheme.colorScheme.primary),
+                                            contentAlignment = Alignment.Center
+                                        ) {
+                                            Text(
+                                                text = app.appName.firstOrNull()?.toString() ?: "?",
+                                                style = MaterialTheme.typography.titleMedium,
+                                                color = MaterialTheme.colorScheme.onPrimary
+                                            )
+                                        }
+                                    }
+                                    Text(
+                                        text = app.appName,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        maxLines = 2,
+                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        }
+                    }
+                },
+                confirmButton = {
+                    TextButton(onClick = { showAppSelector = false }) {
+                        Text("Cancel")
+                    }
+                }
+            )
         }
         
         LazyColumn(
             modifier = Modifier.weight(1f),
+            state = rememberLazyListState(),
             contentPadding = PaddingValues(16.dp, top = 8.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
@@ -729,11 +1051,40 @@ fun TasksScreen(
                             reminder = reminder,
                             onComplete = { viewModel.markAsCompleted(reminder.reminderId) },
                             onDelete = { viewModel.deleteReminder(reminder) },
-                            onSnooze = { viewModel.snoozeReminder(reminder.reminderId, System.currentTimeMillis() + 15 * 60 * 1000) }
+                            onSnooze = { viewModel.snoozeReminder(reminder.reminderId, System.currentTimeMillis() + 15 * 60 * 1000) },
+                            onEdit = { 
+                                reminderToEdit = reminder
+                                showEditDialog = true
+                            },
+                            onUnmarkCompleted = { viewModel.unmarkCompleted(reminder.reminderId) }
                         )
                     }
                 }
             }
+        }
+        
+        // Edit reminder dialog
+        if (showEditDialog && reminderToEdit != null) {
+            EditReminderDialog(
+                reminder = reminderToEdit!!,
+                onDismiss = { 
+                    showEditDialog = false
+                    reminderToEdit = null
+                },
+                onEdit = { title, description, triggerTime, priority ->
+                    viewModel.updateReminder(
+                        reminderToEdit!!.copy(
+                            title = title,
+                            description = description,
+                            triggerTime = triggerTime,
+                            priority = priority,
+                            lastModified = System.currentTimeMillis()
+                        )
+                    )
+                    showEditDialog = false
+                    reminderToEdit = null
+                }
+            )
         }
         
         // Sign in banner for guest users
@@ -961,7 +1312,9 @@ fun ReminderCard(title: String, time: String, recurring: String) {
             Column(modifier = Modifier.weight(1f)) {
                 Text(
                     text = title,
-                    style = MaterialTheme.typography.titleMedium
+                    style = MaterialTheme.typography.titleMedium,
+                    maxLines = 2,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                 )
                 Row(
                     horizontalArrangement = Arrangement.spacedBy(16.dp),
@@ -1734,12 +2087,16 @@ fun ReminderItem(
     reminder: Reminder,
     onComplete: () -> Unit,
     onDelete: () -> Unit,
-    onSnooze: () -> Unit
+    onSnooze: () -> Unit,
+    onEdit: () -> Unit = {},
+    onUnmarkCompleted: () -> Unit = {}
 ) {
     var showMenu by remember { mutableStateOf(false) }
     
     Card(
-        modifier = Modifier.fillMaxWidth(),
+        modifier = Modifier
+            .fillMaxWidth()
+            .alpha(if (reminder.status.name == "COMPLETED") 0.5f else 1f),
         colors = CardDefaults.cardColors(
             containerColor = when (reminder.priority) {
                 ReminderPriority.URGENT -> MaterialTheme.colorScheme.errorContainer
@@ -1756,7 +2113,8 @@ fun ReminderItem(
         ) {
             Checkbox(
                 checked = reminder.status.name == "COMPLETED",
-                onCheckedChange = { if (it) onComplete() }
+                onCheckedChange = { if (it) onComplete() else onUnmarkCompleted() },
+                enabled = true
             )
             
             Column(
@@ -1789,6 +2147,14 @@ fun ReminderItem(
                     expanded = showMenu,
                     onDismissRequest = { showMenu = false }
                 ) {
+                    DropdownMenuItem(
+                        text = { Text("Edit") },
+                        onClick = {
+                            onEdit()
+                            showMenu = false
+                        },
+                        leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) }
+                    )
                     DropdownMenuItem(
                         text = { Text("Snooze") },
                         onClick = {
@@ -1974,6 +2340,248 @@ fun AddReminderDialog(
             title = { Text("Select Time") },
             text = {
                 Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                ) {
+                    // Hour Slider
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text("Hour: $selectedHour")
+                        Slider(
+                            value = selectedHour.toFloat(),
+                            onValueChange = { selectedHour = it.toInt() },
+                            valueRange = if (isAM) 1f..11f else 1f..12f,
+                            steps = if (isAM) 10 else 11,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                    
+                    // Minute Slider
+                    Column(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text("Minute: ${selectedMinute.toString().padStart(2, '0')}")
+                        Slider(
+                            value = selectedMinute.toFloat(),
+                            onValueChange = { selectedMinute = it.toInt() },
+                            valueRange = 0f..59f,
+                            steps = 59,
+                            modifier = Modifier.fillMaxWidth()
+                        )
+                    }
+                    
+                    // AM/PM Toggle
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = { isAM = true },
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (isAM) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface
+                            )
+                        ) {
+                            Text("AM")
+                        }
+                        Button(
+                            onClick = { isAM = false },
+                            modifier = Modifier.weight(1f),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (!isAM) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface
+                            )
+                        ) {
+                            Text("PM")
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(onClick = { showTimePicker = false }) {
+                    Text("Done")
+                }
+            }
+        )
+    }
+}
+
+fun formatDateTime(timestamp: Long): String {
+    val sdf = SimpleDateFormat("MMM dd, yyyy HH:mm", Locale.getDefault())
+    return sdf.format(Date(timestamp))
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun EditReminderDialog(
+    reminder: Reminder,
+    onDismiss: () -> Unit,
+    onEdit: (title: String, description: String, triggerTime: Long, priority: ReminderPriority) -> Unit
+) {
+    var title by remember { mutableStateOf(reminder.title) }
+    var description by remember { mutableStateOf(reminder.description) }
+    
+    // Initialize with reminder's time
+    val calendar = Calendar.getInstance().apply { timeInMillis = reminder.triggerTime }
+    var selectedHour by remember { mutableStateOf(calendar.get(Calendar.HOUR)) }
+    var selectedMinute by remember { mutableStateOf(calendar.get(Calendar.MINUTE)) }
+    var isAM by remember { mutableStateOf(calendar.get(Calendar.AM_PM) == Calendar.AM) }
+    var selectedPriority by remember { mutableStateOf(reminder.priority) }
+    var showTimePicker by remember { mutableStateOf(false) }
+    
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { 
+            Text(
+                "Edit Reminder",
+                style = MaterialTheme.typography.titleLarge
+            ) 
+        },
+        text = {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                OutlinedTextField(
+                    value = title,
+                    onValueChange = { title = it },
+                    label = { Text("Title") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+                
+                OutlinedTextField(
+                    value = description,
+                    onValueChange = { description = it },
+                    label = { Text("Description (optional)") },
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 2,
+                    maxLines = 2
+                )
+                
+                // Time Display - Click to open time picker
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = { showTimePicker = true }
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Time", style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            "${selectedHour.toString().padStart(2, '0')}:${selectedMinute.toString().padStart(2, '0')} ${if (isAM) "AM" else "PM"}",
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+                
+                // Priority - Radio buttons in 2x2 grid
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text("Priority", style = MaterialTheme.typography.bodyMedium)
+                    
+                    Column {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            ReminderPriority.values().slice(0..1).forEach { priority ->
+                                Row(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clickable { selectedPriority = priority },
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    RadioButton(
+                                        selected = selectedPriority == priority,
+                                        onClick = { selectedPriority = priority }
+                                    )
+                                    Text(
+                                        priority.name,
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
+                                }
+                            }
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            ReminderPriority.values().slice(2..3).forEach { priority ->
+                                Row(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clickable { selectedPriority = priority },
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    RadioButton(
+                                        selected = selectedPriority == priority,
+                                        onClick = { selectedPriority = priority }
+                                    )
+                                    Text(
+                                        priority.name,
+                                        style = MaterialTheme.typography.bodySmall
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    if (title.isNotBlank()) {
+                        val calendar = Calendar.getInstance()
+                        val hour24 = if (isAM) {
+                            if (selectedHour == 12) 0 else selectedHour
+                        } else {
+                            if (selectedHour == 12) 12 else selectedHour + 12
+                        }
+                        calendar.set(Calendar.HOUR_OF_DAY, hour24)
+                        calendar.set(Calendar.MINUTE, selectedMinute)
+                        calendar.set(Calendar.SECOND, 0)
+                        
+                        if (calendar.timeInMillis < System.currentTimeMillis()) {
+                            calendar.add(Calendar.DAY_OF_MONTH, 1)
+                        }
+                        
+                        onEdit(title, description, calendar.timeInMillis, selectedPriority)
+                    }
+                },
+                enabled = title.isNotBlank()
+            ) {
+                Text("Save")
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("Cancel")
+            }
+        }
+    )
+    
+    if (showTimePicker) {
+        AlertDialog(
+            onDismissRequest = { showTimePicker = false },
+            title = { Text("Select Time") },
+            text = {
+                Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
@@ -2009,20 +2617,23 @@ fun AddReminderDialog(
                     
                     // AM/PM Toggle
                     Row(
+                        modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Button(
                             onClick = { isAM = true },
+                            modifier = Modifier.weight(1f),
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = if (isAM) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface
+                                containerColor = if (isAM) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary
                             )
                         ) {
                             Text("AM")
                         }
                         Button(
                             onClick = { isAM = false },
+                            modifier = Modifier.weight(1f),
                             colors = ButtonDefaults.buttonColors(
-                                containerColor = if (!isAM) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface
+                                containerColor = if (!isAM) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary
                             )
                         ) {
                             Text("PM")
@@ -2031,15 +2642,462 @@ fun AddReminderDialog(
                 }
             },
             confirmButton = {
-                Button(onClick = { showTimePicker = false }) {
-                    Text("Done")
+                TextButton(onClick = { showTimePicker = false }) {
+                    Text("OK")
                 }
             }
         )
     }
 }
 
-fun formatDateTime(timestamp: Long): String {
-    val sdf = SimpleDateFormat("MMM dd, yyyy HH:mm", Locale.getDefault())
-    return sdf.format(Date(timestamp))
+/**
+ * Helper function to process conversational AI input step by step
+ */
+private suspend fun processConversationalInput(
+    input: String,
+    chatState: ChatState,
+    geminiAIService: GeminiAIService,
+    viewModel: ReminderViewModel,
+    coroutineScope: kotlinx.coroutines.CoroutineScope,
+    onStateChange: (ChatState) -> Unit,
+    onQuestionChange: (String) -> Unit,
+    onClearInput: () -> Unit,
+    onAddMessage: (Boolean, String) -> Unit,
+    reminderTitle: String,
+    onReminderTitleChange: (String) -> Unit,
+    reminderTime: String?,
+    onReminderTimeChange: (String?) -> Unit,
+    reminderPriority: String,
+    onReminderPriorityChange: (String) -> Unit,
+    reminderSound: String,
+    onReminderSoundChange: (String) -> Unit,
+    selectedApp: com.groupflow.app.service.AppInfo?,
+    onSelectedAppChange: (com.groupflow.app.service.AppInfo?) -> Unit,
+    appAutomationHelper: com.groupflow.app.service.AppAutomationHelper,
+    onShowAppSelector: (Boolean) -> Unit,
+    onInstalledAppsChange: (List<com.groupflow.app.service.AppInfo>) -> Unit
+) {
+    android.util.Log.d("TasksScreen", "Processing input: $input, state: $chatState")
+    
+    when (chatState) {
+        ChatState.IDLE -> {
+            // Check if user wants to open an app
+            if (input.lowercase().contains("open app") || 
+                input.lowercase().contains("launch app") ||
+                input.lowercase().contains("start app")) {
+                onAddMessage(true, input)
+                onClearInput()
+                // Show app selector
+                val apps = appAutomationHelper.getAllInstalledApps()
+                onInstalledAppsChange(apps)
+                onShowAppSelector(true)
+                onQuestionChange("Select an app to open")
+                onStateChange(ChatState.ASKING_APP)
+            } else {
+                // Normal reminder flow
+                onAddMessage(true, input)
+                onReminderTitleChange(input)
+                onClearInput()
+                val question = "What time should I remind you? (e.g., 'in 5 minutes', 'at 3 PM', 'tomorrow morning')"
+                onQuestionChange(question)
+                onAddMessage(false, question)
+                onStateChange(ChatState.ASKING_TIME)
+            }
+        }
+        
+        ChatState.ASKING_APP -> {
+            // User typed app name instead of using selector
+            onAddMessage(true, input)
+            val searchResults = appAutomationHelper.searchApps(input)
+            if (searchResults.isNotEmpty()) {
+                onSelectedAppChange(searchResults.first())
+                val question = "What time should I open ${searchResults.first().appName}?"
+                onQuestionChange(question)
+                onAddMessage(false, question)
+                onStateChange(ChatState.ASKING_TIME)
+            } else {
+                onQuestionChange("App not found. Try 'open app' to see all apps.")
+                onAddMessage(false, "App not found. Try 'open app' to see all apps.")
+            }
+            onClearInput()
+        }
+        
+        ChatState.ASKING_REMINDER -> {
+            // User provided the reminder title
+            onAddMessage(true, input)
+            onReminderTitleChange(input)
+            onClearInput()
+            val question = "What time should I remind you? (e.g., 'in 5 minutes', 'at 3 PM', 'tomorrow morning')"
+            onQuestionChange(question)
+            onAddMessage(false, question)
+            onStateChange(ChatState.ASKING_TIME)
+        }
+        
+        ChatState.ASKING_TIME -> {
+            // User provided time - parse with AI
+            onAddMessage(true, input)
+            onReminderTimeChange(input)
+            onClearInput()
+            val question = "What priority? (low, medium, high, urgent)"
+            onQuestionChange(question)
+            onAddMessage(false, question)
+            onStateChange(ChatState.ASKING_PRIORITY)
+        }
+        
+        ChatState.ASKING_PRIORITY -> {
+            // User provided priority
+            onAddMessage(true, input)
+            val priority = when (input.lowercase()) {
+                "low", "l" -> "LOW"
+                "high", "h" -> "HIGH"
+                "urgent", "u" -> "URGENT"
+                else -> "MEDIUM"
+            }
+            onReminderPriorityChange(priority)
+            onClearInput()
+            val question = "Sound preference? (ring, vibrate, silent)"
+            onQuestionChange(question)
+            onAddMessage(false, question)
+            onStateChange(ChatState.ASKING_SOUND)
+        }
+        
+        ChatState.ASKING_SOUND -> {
+            // User provided sound preference
+            onAddMessage(true, input)
+            val sound = when (input.lowercase()) {
+                "silent", "s" -> "silent"
+                "vibrate", "v" -> "vibrate"
+                else -> "ring"
+            }
+            onReminderSoundChange(sound)
+            onClearInput()
+            
+            // Now create the reminder with all collected info
+            onStateChange(ChatState.PROCESSING)
+            val question = if (selectedApp != null) {
+                "Opening ${selectedApp.appName} at scheduled time..."
+            } else {
+                "Creating your reminder..."
+            }
+            onQuestionChange(question)
+            onAddMessage(false, question)
+            
+            try {
+                var triggerTime: Long
+                var title: String
+                
+                if (selectedApp != null) {
+                    // App automation flow - parse time with AI
+                    val fullInput = "Open ${selectedApp.appName} at $reminderTime"
+                    val result = geminiAIService.parseReminder(fullInput, viewModel.currentUserId.value)
+                    result.onSuccess { parsedReminder ->
+                        android.util.Log.d("TasksScreen", "Parsed: ${parsedReminder.title}, time: ${parsedReminder.triggerTime}")
+                        
+                        val currentTime = System.currentTimeMillis()
+                        triggerTime = if (parsedReminder.triggerTime > currentTime + 60000) {
+                            parsedReminder.triggerTime
+                        } else {
+                            val calendar = java.util.Calendar.getInstance()
+                            calendar.add(java.util.Calendar.MINUTE, 2)
+                            calendar.timeInMillis
+                        }
+                        
+                        title = "Open ${selectedApp.appName}"
+                        
+                        val finalPriority = when (reminderPriority) {
+                            "URGENT" -> ReminderPriority.URGENT
+                            "HIGH" -> ReminderPriority.HIGH
+                            "LOW" -> ReminderPriority.LOW
+                            else -> ReminderPriority.MEDIUM
+                        }
+                        
+                        // Calculate endTime (30 minutes after open time by default)
+                        val endTime = triggerTime + (30 * 60 * 1000)
+                        
+                        viewModel.createReminder(
+                            title = title,
+                            description = "",
+                            triggerTime = triggerTime,
+                            priority = finalPriority,
+                            isRecurring = false,
+                            appPackageName = selectedApp.packageName,
+                            endTime = endTime
+                        )
+                        
+                        val successMsg = "Reminder set to open ${selectedApp.appName}! Anything else?"
+                        onQuestionChange(successMsg)
+                        onAddMessage(false, successMsg)
+                        onClearInput()
+                        
+                        // Reset conversational state
+                        onReminderTitleChange("")
+                        onReminderTimeChange(null)
+                        onReminderPriorityChange("MEDIUM")
+                        onReminderSoundChange("sound")
+                        onSelectedAppChange(null)
+                        
+                        kotlinx.coroutines.delay(1500)
+                        onStateChange(ChatState.IDLE)
+                    }.onFailure { error ->
+                        android.util.Log.e("TasksScreen", "AI parsing failed: ${error.message}", error)
+                        // Fallback
+                        val calendar = java.util.Calendar.getInstance()
+                        calendar.add(java.util.Calendar.MINUTE, 2)
+                        triggerTime = calendar.timeInMillis
+                        title = "Open ${selectedApp.appName}"
+                        
+                        val finalPriority = when (reminderPriority) {
+                            "URGENT" -> ReminderPriority.URGENT
+                            "HIGH" -> ReminderPriority.HIGH
+                            "LOW" -> ReminderPriority.LOW
+                            else -> ReminderPriority.MEDIUM
+                        }
+                        
+                        val endTime = triggerTime + (30 * 60 * 1000)
+                        
+                        viewModel.createReminder(
+                            title = title,
+                            description = "",
+                            triggerTime = triggerTime,
+                            priority = finalPriority,
+                            isRecurring = false,
+                            appPackageName = selectedApp.packageName,
+                            endTime = endTime
+                        )
+                        
+                        val fallbackMsg = "Reminder created! What else?"
+                        onQuestionChange(fallbackMsg)
+                        onAddMessage(false, fallbackMsg)
+                        onClearInput()
+                        
+                        onReminderTitleChange("")
+                        onReminderTimeChange(null)
+                        onReminderPriorityChange("MEDIUM")
+                        onReminderSoundChange("sound")
+                        onSelectedAppChange(null)
+                        
+                        kotlinx.coroutines.delay(1500)
+                        onStateChange(ChatState.IDLE)
+                    }
+                } else {
+                    // Normal reminder flow
+                    val fullInput = "Remind me: $reminderTitle at $reminderTime"
+                    val result = geminiAIService.parseReminder(fullInput, viewModel.currentUserId.value)
+                    result.onSuccess { parsedReminder ->
+                        android.util.Log.d("TasksScreen", "Parsed: ${parsedReminder.title}, time: ${parsedReminder.triggerTime}")
+                        
+                        val currentTime = System.currentTimeMillis()
+                        triggerTime = if (parsedReminder.triggerTime > currentTime + 60000) {
+                            parsedReminder.triggerTime
+                        } else {
+                            val calendar = java.util.Calendar.getInstance()
+                            calendar.add(java.util.Calendar.MINUTE, 2)
+                            calendar.timeInMillis
+                        }
+                        
+                        title = reminderTitle
+                        
+                        val finalPriority = when (reminderPriority) {
+                            "URGENT" -> ReminderPriority.URGENT
+                            "HIGH" -> ReminderPriority.HIGH
+                            "LOW" -> ReminderPriority.LOW
+                            else -> ReminderPriority.MEDIUM
+                        }
+                        
+                        viewModel.createReminder(
+                            title = title,
+                            description = "",
+                            triggerTime = triggerTime,
+                            priority = finalPriority,
+                            isRecurring = false
+                        )
+                        
+                        val successMsg = "Reminder set! Anything else?"
+                        onQuestionChange(successMsg)
+                        onAddMessage(false, successMsg)
+                        onClearInput()
+                        
+                        onReminderTitleChange("")
+                        onReminderTimeChange(null)
+                        onReminderPriorityChange("MEDIUM")
+                        onReminderSoundChange("sound")
+                        
+                        kotlinx.coroutines.delay(1500)
+                        onStateChange(ChatState.IDLE)
+                    }.onFailure { error ->
+                        android.util.Log.e("TasksScreen", "AI parsing failed: ${error.message}", error)
+                        val calendar = java.util.Calendar.getInstance()
+                        calendar.add(java.util.Calendar.MINUTE, 2)
+                        triggerTime = calendar.timeInMillis
+                        title = reminderTitle
+                        
+                        val finalPriority = when (reminderPriority) {
+                            "URGENT" -> ReminderPriority.URGENT
+                            "HIGH" -> ReminderPriority.HIGH
+                            "LOW" -> ReminderPriority.LOW
+                            else -> ReminderPriority.MEDIUM
+                        }
+                        
+                        viewModel.createReminder(
+                            title = title,
+                            description = "",
+                            triggerTime = triggerTime,
+                            priority = finalPriority,
+                            isRecurring = false
+                        )
+                        
+                        val fallbackMsg = "Reminder created! What else?"
+                        onQuestionChange(fallbackMsg)
+                        onAddMessage(false, fallbackMsg)
+                        onClearInput()
+                        
+                        onReminderTitleChange("")
+                        onReminderTimeChange(null)
+                        onReminderPriorityChange("MEDIUM")
+                        onReminderSoundChange("sound")
+                        
+                        kotlinx.coroutines.delay(1500)
+                        onStateChange(ChatState.IDLE)
+                    }
+                }
+            } catch (e: Exception) {
+                android.util.Log.e("TasksScreen", "Exception: ${e.message}", e)
+                val calendar = java.util.Calendar.getInstance()
+                calendar.add(java.util.Calendar.MINUTE, 2)
+                val triggerTime = calendar.timeInMillis
+                val title = if (selectedApp != null) "Open ${selectedApp.appName}" else reminderTitle
+                
+                val finalPriority = when (reminderPriority) {
+                    "URGENT" -> ReminderPriority.URGENT
+                    "HIGH" -> ReminderPriority.HIGH
+                    "LOW" -> ReminderPriority.LOW
+                    else -> ReminderPriority.MEDIUM
+                }
+                
+                val appPackageName = selectedApp?.packageName
+                val endTime = if (selectedApp != null) triggerTime + (30 * 60 * 1000) else null
+                
+                viewModel.createReminder(
+                    title = title,
+                    description = "",
+                    triggerTime = triggerTime,
+                    priority = finalPriority,
+                    isRecurring = false,
+                    appPackageName = appPackageName,
+                    endTime = endTime
+                )
+                
+                val errorMsg = "Done! Need another reminder?"
+                onQuestionChange(errorMsg)
+                onAddMessage(false, errorMsg)
+                onClearInput()
+                
+                onReminderTitleChange("")
+                onReminderTimeChange(null)
+                onReminderPriorityChange("MEDIUM")
+                onReminderSoundChange("sound")
+                onSelectedAppChange(null)
+                
+                kotlinx.coroutines.delay(1500)
+                onStateChange(ChatState.IDLE)
+            }
+        }
+        
+        else -> {
+            // Direct input processing (fallback)
+            processReminderInput(
+                input = input,
+                geminiAIService = geminiAIService,
+                viewModel = viewModel,
+                coroutineScope = coroutineScope,
+                onStateChange = onStateChange,
+                onClearInput = onClearInput,
+                onQuestionChange = onQuestionChange
+            )
+        }
+    }
+}
+
+/**
+ * Helper function to process reminder input via Gemini AI (fallback)
+ */
+private fun processReminderInput(
+    input: String,
+    geminiAIService: GeminiAIService,
+    viewModel: ReminderViewModel,
+    coroutineScope: kotlinx.coroutines.CoroutineScope,
+    onStateChange: (ChatState) -> Unit,
+    onClearInput: () -> Unit,
+    onQuestionChange: (String) -> Unit
+) {
+    android.util.Log.d("TasksScreen", "Processing input: $input")
+    onStateChange(ChatState.PROCESSING)
+    onQuestionChange("Creating your reminder...")
+    
+    coroutineScope.launch {
+        try {
+            val result = geminiAIService.parseReminder(input, viewModel.currentUserId.value)
+            result.onSuccess { parsedReminder ->
+                android.util.Log.d("TasksScreen", "Parsed: ${parsedReminder.title}, time: ${parsedReminder.triggerTime}")
+                // Only use fallback if AI didn't provide a valid time (more than 1 minute from now)
+                val currentTime = System.currentTimeMillis()
+                val triggerTime: Long = if (parsedReminder.triggerTime > currentTime + 60000) {
+                    parsedReminder.triggerTime  // AI provided valid time
+                } else {
+                    // AI didn't provide valid time, use fallback
+                    val calendar = java.util.Calendar.getInstance()
+                    calendar.add(java.util.Calendar.MINUTE, 2)
+                    calendar.timeInMillis
+                }
+                
+                viewModel.createReminder(
+                    title = parsedReminder.title,
+                    description = parsedReminder.description,
+                    triggerTime = triggerTime,
+                    priority = when(parsedReminder.priority) {
+                        "URGENT" -> ReminderPriority.URGENT
+                        "HIGH" -> ReminderPriority.HIGH
+                        "LOW" -> ReminderPriority.LOW
+                        else -> ReminderPriority.MEDIUM
+                    },
+                    isRecurring = parsedReminder.isRecurring
+                )
+                onQuestionChange("Reminder set! Anything else?")
+                onClearInput()
+                kotlinx.coroutines.delay(1500)
+                onStateChange(ChatState.IDLE)
+            }.onFailure { error ->
+                android.util.Log.e("TasksScreen", "AI parsing failed: ${error.message}", error)
+                // Only use fallback when AI completely fails
+                val calendar = java.util.Calendar.getInstance()
+                calendar.add(java.util.Calendar.MINUTE, 2)
+                viewModel.createReminder(
+                    title = input,
+                    description = "",
+                    triggerTime = calendar.timeInMillis,
+                    priority = ReminderPriority.MEDIUM,
+                    isRecurring = false
+                )
+                onQuestionChange("Reminder created! What else?")
+                onClearInput()
+                kotlinx.coroutines.delay(1500)
+                onStateChange(ChatState.IDLE)
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("TasksScreen", "Exception: ${e.message}", e)
+            val calendar = java.util.Calendar.getInstance()
+            calendar.add(java.util.Calendar.MINUTE, 2)
+            viewModel.createReminder(
+                title = input,
+                description = "",
+                triggerTime = calendar.timeInMillis,
+                priority = ReminderPriority.MEDIUM,
+                isRecurring = false
+            )
+            onQuestionChange("Done! Need another reminder?")
+            onClearInput()
+            kotlinx.coroutines.delay(1500)
+            onStateChange(ChatState.IDLE)
+        }
+    }
 }

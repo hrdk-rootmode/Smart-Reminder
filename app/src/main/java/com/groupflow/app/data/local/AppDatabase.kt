@@ -35,7 +35,7 @@ import com.groupflow.app.data.local.entity.User
         Announcement::class,
         Reminder::class
     ],
-    version = 1,
+    version = 2,
     exportSchema = false
 )
 @TypeConverters(Converters::class)

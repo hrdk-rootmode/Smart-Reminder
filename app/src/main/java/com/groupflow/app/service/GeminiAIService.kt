@@ -155,9 +155,12 @@ class GeminiAIService(private val context: Context) {
      */
     suspend fun parseReminder(input: String, userId: String): Result<ParsedReminder> {
         return try {
-            val model = generativeModel ?: return Result.failure(
-                IllegalStateException("Gemini AI not initialized. Add GEMINI_API_KEY to local.properties")
-            )
+            val model = generativeModel
+            if (model == null) {
+                return Result.failure(
+                    IllegalStateException("Gemini AI not initialized. Add GEMINI_API_KEY to local.properties")
+                )
+            }
 
             val currentTime = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.getDefault()).format(Date())
             val prompt = """
@@ -165,64 +168,73 @@ class GeminiAIService(private val context: Context) {
             
             Input: "$input"
             
-            Extract:
+            Extract the following information and return ONLY valid JSON:
             {
-              "title": "Brief title",
-              "description": "Optional details",
-              "triggerTime": "ISO 8601 datetime (yyyy-MM-dd'T'HH:mm:ss)",
-              "priority": "URGENT|HIGH|MEDIUM|LOW",
-              "isRecurring": true/false,
-              "recurrencePattern": {
-                "frequency": "DAILY|WEEKLY|MONTHLY",
-                "daysOfWeek": [1,2,3]
-              },
-              "detectedLanguage": "en|hi|es"
+                "title": "The main task or reminder title",
+                "description": "Additional details or empty string if none",
+                "priority": "URGENT, HIGH, MEDIUM, or LOW based on urgency",
+                "triggerTime": "The time in 'HH:mm' 24-hour format, or empty if not specified",
+                "isRecurring": "true if this is a recurring reminder (daily, weekly, monthly, quarterly, yearly), otherwise false",
+                "recurrencePattern": "DAILY, WEEKLY, MONTHLY, QUARTERLY, YEARLY, or empty if not recurring"
             }
             
-            Current time: $currentTime
-            User timezone: ${Calendar.getInstance().timeZone.displayName}
-            
-            Examples:
-            - "कल सुबह 7 बजे व्यायाम करने की याद दिलाओ" → Hindi, tomorrow 7 AM, title: "व्यायाम करना"
-            - "Remind me to call mom tomorrow at 6 PM" → English, tomorrow 6 PM, title: "Call mom"
-            - "Urgente: pagar factura de electricidad" → Spanish, URGENT priority
-            
-            Return ONLY JSON, no markdown.
+            Rules:
+            - If no time is mentioned, set triggerTime to empty
+            - If priority is not specified, use MEDIUM
+            - If no description, use empty string
+            - For recurring reminders, detect patterns like "every day", "daily", "every week", "weekly", "every month", "monthly", "every quarter", "quarterly", "every year", "yearly"
+            - Return ONLY the JSON, no other text
             """.trimIndent()
-
-            val response = model.generateContent(prompt)
-            val jsonText = response.text?.trim()
             
-            if (jsonText != null) {
-                // Parse JSON (simplified parsing for now)
-                val title = extractField(jsonText, "title") ?: "Untitled Reminder"
-                val description = extractField(jsonText, "description") ?: ""
-                val priorityStr = extractField(jsonText, "priority") ?: "MEDIUM"
-                val detectedLanguage = extractField(jsonText, "detectedLanguage") ?: "en"
-                
-                // Detect DND command from input
-                val enableDND = input.lowercase().contains("do not disturb") || 
-                                 input.lowercase().contains("dnd") ||
-                                 input.lowercase().contains("silent")
-                
-                // Calculate trigger time based on input (simplified)
-                val triggerTime = calculateTriggerTime(input, currentTime)
-                
-                Result.success(ParsedReminder(
+            val response = model.generateContent(prompt)
+            val text = response.text ?: ""
+            
+            android.util.Log.d("GeminiAIService", "Response: $text")
+            
+            // Extract JSON from response
+            val jsonText = extractJsonFromResponse(text)
+            
+            val title = extractField(jsonText, "title") ?: input
+            val description = extractField(jsonText, "description") ?: ""
+            val priority = extractField(jsonText, "priority") ?: "MEDIUM"
+            val timeStr = extractField(jsonText, "triggerTime") ?: ""
+            val isRecurring = extractField(jsonText, "isRecurring")?.toBoolean() ?: false
+            val recurrencePattern = extractField(jsonText, "recurrencePattern") ?: ""
+            
+            // Calculate trigger time
+            val triggerTime = if (timeStr.isNotEmpty()) {
+                calculateTriggerTimeFromTimeStr(timeStr, input)
+            } else {
+                calculateTriggerTime(input, "")
+            }
+            
+            // Check for DND
+            val enableDND = input.lowercase().contains("do not disturb") || 
+                           input.lowercase().contains("dnd") || 
+                           input.lowercase().contains("silent")
+            
+            Result.success(
+                ParsedReminder(
                     title = title,
                     description = description,
+                    priority = priority,
                     triggerTime = triggerTime,
-                    priority = priorityStr,
-                    isRecurring = false,
-                    detectedLanguage = detectedLanguage,
+                    isRecurring = isRecurring,
+                    recurrencePattern = recurrencePattern,
                     enableDND = enableDND
-                ))
-            } else {
-                Result.failure(Exception("No response from Gemini AI"))
-            }
+                )
+            )
         } catch (e: Exception) {
+            android.util.Log.e("GeminiAIService", "Parse error: ${e.message}", e)
             Result.failure(e)
         }
+    }
+    
+    private fun extractJsonFromResponse(response: String): String {
+        // Try to extract JSON from the response
+        val jsonPattern = "\\{.*\\}".toRegex(RegexOption.DOT_MATCHES_ALL)
+        val match = jsonPattern.find(response)
+        return match?.value ?: "{}"
     }
     
     private fun extractField(json: String, fieldName: String): String? {
@@ -231,13 +243,53 @@ class GeminiAIService(private val context: Context) {
         return match?.groupValues?.get(1)
     }
     
+    private fun calculateTriggerTimeFromTimeStr(timeStr: String, input: String): Long {
+        val calendar = Calendar.getInstance()
+        try {
+            val parts = timeStr.split(":")
+            if (parts.size == 2) {
+                val hour = parts[0].toIntOrNull() ?: 0
+                val minute = parts[1].toIntOrNull() ?: 0
+                
+                calendar.set(Calendar.HOUR_OF_DAY, hour)
+                calendar.set(Calendar.MINUTE, minute)
+                calendar.set(Calendar.SECOND, 0)
+                
+                // If the time has already passed today, set it for tomorrow
+                if (calendar.timeInMillis < System.currentTimeMillis()) {
+                    calendar.add(Calendar.DAY_OF_MONTH, 1)
+                }
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("GeminiAIService", "Error parsing time string: $timeStr", e)
+            // Fallback to calculateTriggerTime
+            return calculateTriggerTime(input, "")
+        }
+        return calendar.timeInMillis
+    }
+    
     private fun calculateTriggerTime(input: String, currentTime: String): Long {
         val calendar = Calendar.getInstance()
         val lowerInput = input.lowercase()
         
+        android.util.Log.d("GeminiAIService", "Calculating trigger time for input: $input")
+        
         // Handle relative time expressions
         when {
-            // Minutes
+            // Minutes - more flexible pattern matching
+            lowerInput.matches(Regex("(after|in)\\s+(\\d+)\\s*minutes?")) -> {
+                val match = Regex("(after|in)\\s+(\\d+)\\s*minutes?").find(lowerInput)
+                val minutes = match?.groupValues?.get(2)?.toIntOrNull() ?: 2
+                calendar.add(Calendar.MINUTE, minutes)
+                android.util.Log.d("GeminiAIService", "Matched $minutes minutes")
+            }
+            lowerInput.matches(Regex("(after|in)\\s+(\\d+)\\s*min")) -> {
+                val match = Regex("(after|in)\\s+(\\d+)\\s*min").find(lowerInput)
+                val minutes = match?.groupValues?.get(2)?.toIntOrNull() ?: 2
+                calendar.add(Calendar.MINUTE, minutes)
+                android.util.Log.d("GeminiAIService", "Matched $minutes min")
+            }
+            // Specific minute patterns
             lowerInput.contains("after 5 minute") || lowerInput.contains("in 5 minute") -> {
                 calendar.add(Calendar.MINUTE, 5)
             }
@@ -251,6 +303,12 @@ class GeminiAIService(private val context: Context) {
                 calendar.add(Calendar.MINUTE, 30)
             }
             // Hours
+            lowerInput.matches(Regex("(after|in)\\s+(\\d+)\\s*hours?")) -> {
+                val match = Regex("(after|in)\\s+(\\d+)\\s*hours?").find(lowerInput)
+                val hours = match?.groupValues?.get(2)?.toIntOrNull() ?: 1
+                calendar.add(Calendar.HOUR_OF_DAY, hours)
+                android.util.Log.d("GeminiAIService", "Matched $hours hours")
+            }
             lowerInput.contains("after 1 hour") || lowerInput.contains("in 1 hour") -> {
                 calendar.add(Calendar.HOUR_OF_DAY, 1)
             }
@@ -261,6 +319,14 @@ class GeminiAIService(private val context: Context) {
                 calendar.add(Calendar.HOUR_OF_DAY, 3)
             }
             // Days
+            lowerInput.matches(Regex("(after|in)\\s+(\\d+)\\s*days?")) -> {
+                val match = Regex("(after|in)\\s+(\\d+)\\s*days?").find(lowerInput)
+                val days = match?.groupValues?.get(2)?.toIntOrNull() ?: 1
+                calendar.add(Calendar.DAY_OF_YEAR, days)
+                calendar.set(Calendar.HOUR_OF_DAY, 9)
+                calendar.set(Calendar.MINUTE, 0)
+                android.util.Log.d("GeminiAIService", "Matched $days days")
+            }
             lowerInput.contains("after 1 day") || lowerInput.contains("in 1 day") || lowerInput.contains("tomorrow") -> {
                 calendar.add(Calendar.DAY_OF_YEAR, 1)
                 calendar.set(Calendar.HOUR_OF_DAY, 9)
@@ -342,9 +408,10 @@ class GeminiAIService(private val context: Context) {
             lowerInput.contains("urgent") -> {
                 calendar.add(Calendar.MINUTE, 30)
             }
-            // Default
+            // Default - 2 minutes instead of 1 hour
             else -> {
-                calendar.add(Calendar.HOUR_OF_DAY, 1)
+                calendar.add(Calendar.MINUTE, 2)
+                android.util.Log.d("GeminiAIService", "Using default: 2 minutes")
             }
         }
         
@@ -384,7 +451,8 @@ class GeminiAIService(private val context: Context) {
         val triggerTime: Long,
         val priority: String,
         val isRecurring: Boolean,
-        val detectedLanguage: String,
+        val recurrencePattern: String = "",
+        val detectedLanguage: String = "en-US",
         val enableDND: Boolean = false
     )
 }

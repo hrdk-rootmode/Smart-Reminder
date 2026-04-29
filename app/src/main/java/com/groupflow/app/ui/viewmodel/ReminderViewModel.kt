@@ -55,7 +55,9 @@ class ReminderViewModel(application: Application) : AndroidViewModel(application
         description: String = "",
         triggerTime: Long,
         priority: ReminderPriority = ReminderPriority.MEDIUM,
-        isRecurring: Boolean = false
+        isRecurring: Boolean = false,
+        appPackageName: String? = null,
+        endTime: Long? = null
     ) {
         viewModelScope.launch {
             val reminderId = UUID.randomUUID().toString()
@@ -67,7 +69,9 @@ class ReminderViewModel(application: Application) : AndroidViewModel(application
                 triggerTime = triggerTime,
                 priority = priority,
                 isRecurring = isRecurring,
-                reminderType = ReminderType.TIME_BASED
+                reminderType = ReminderType.TIME_BASED,
+                appPackageName = appPackageName,
+                endTime = endTime
             )
             reminderDao.insertReminder(reminder)
             
@@ -78,7 +82,9 @@ class ReminderViewModel(application: Application) : AndroidViewModel(application
                 title,
                 description,
                 priority.name,
-                triggerTime
+                triggerTime,
+                appPackageName = appPackageName,
+                endTime = endTime
             )
         }
     }
@@ -96,7 +102,9 @@ class ReminderViewModel(application: Application) : AndroidViewModel(application
                 reminder.title,
                 reminder.description,
                 reminder.priority.name,
-                reminder.triggerTime
+                reminder.triggerTime,
+                appPackageName = reminder.appPackageName,
+                endTime = reminder.endTime
             )
         }
     }
@@ -118,6 +126,26 @@ class ReminderViewModel(application: Application) : AndroidViewModel(application
             
             // Cancel notification
             NotificationHelper.cancelReminder(context, reminderId)
+        }
+    }
+    
+    // Unmark reminder as completed (restore to pending)
+    fun unmarkCompleted(reminderId: String) {
+        viewModelScope.launch {
+            reminderDao.updateReminderStatus(reminderId, ReminderStatus.ACTIVE, System.currentTimeMillis())
+            
+            // Reschedule notification
+            val reminder = reminderDao.getReminderById(reminderId)
+            if (reminder != null && reminder.triggerTime > System.currentTimeMillis()) {
+                NotificationHelper.scheduleReminder(
+                    context,
+                    reminder.reminderId,
+                    reminder.title,
+                    reminder.description,
+                    reminder.priority.name,
+                    reminder.triggerTime
+                )
+            }
         }
     }
 

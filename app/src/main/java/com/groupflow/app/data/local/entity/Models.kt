@@ -277,6 +277,9 @@ data class Reminder(
     val linkedMessageId: String? = null,
     val isSynced: Boolean = false,
     val lastModified: Long = System.currentTimeMillis(),
+    // App automation fields
+    val appPackageName: String? = null,  // Package name of app to open (e.g., "com.spotify.music")
+    val endTime: Long? = null,  // Time to remind user to close the app
 ) : Parcelable
 
 enum class ReminderPriority {
