@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -57,6 +58,9 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.DatePicker
+import androidx.compose.material3.DatePickerDialog
+import androidx.compose.material3.rememberDatePickerState
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FloatingActionButton
@@ -96,6 +100,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.unit.TextUnit
@@ -113,6 +118,130 @@ import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 import kotlinx.coroutines.launch
+
+private data class LocalParsedInput(
+    val title: String,
+    val triggerTime: Long
+)
+
+private fun containsDevanagari(text: String): Boolean {
+    return text.any { it in '\u0900'..'\u097F' }
+}
+
+private fun parseExplicitClockTime(input: String): LocalParsedInput? {
+    val trimmed = input.trim()
+
+    // English time patterns: "2:00 PM", "2 PM", "14:00"
+    val en12h = Regex("\\b(\\d{1,2})(?::(\\d{2}))?\\s*(am|pm)\\b", RegexOption.IGNORE_CASE)
+    val en24h = Regex("\\b([01]?\\d|2[0-3]):([0-5]\\d)\\b")
+
+    // Hindi time patterns: "2 बजे", "2:15 बजे", also allow am/pm if user says it
+    val hiBaje = Regex("\\b(\\d{1,2})(?::(\\d{2}))?\\s*बजे\\b")
+    val hiAmPm = Regex("\\b(\\d{1,2})(?::(\\d{2}))?\\s*(am|pm)\\b", RegexOption.IGNORE_CASE)
+
+    val match12h = en12h.find(trimmed) ?: hiAmPm.find(trimmed)
+    val match24h = en24h.find(trimmed)
+    val matchBaje = hiBaje.find(trimmed)
+
+    val (hour, minute, isPm, matchedRange) = when {
+        match12h != null -> {
+            val h = match12h.groupValues[1].toIntOrNull() ?: return null
+            val m = match12h.groupValues[2].toIntOrNull() ?: 0
+            val ampm = match12h.groupValues[3].lowercase(Locale.getDefault())
+            val pm = ampm == "pm"
+            Quad(h, m, pm, match12h.range)
+        }
+        matchBaje != null -> {
+            val h = matchBaje.groupValues[1].toIntOrNull() ?: return null
+            val m = matchBaje.groupValues[2].toIntOrNull() ?: 0
+            // Hindi "बजे" is ambiguous; default to next occurrence using 24h guess:
+            // if hour is 1..11, keep as-is; if 12 keep 12.
+            Quad(h, m, null, matchBaje.range)
+        }
+        match24h != null -> {
+            val h = match24h.groupValues[1].toIntOrNull() ?: return null
+            val m = match24h.groupValues[2].toIntOrNull() ?: return null
+            Quad(h, m, null, match24h.range)
+        }
+        else -> return null
+    }
+
+    val calendar = Calendar.getInstance()
+    val hour24 = when (isPm) {
+        true -> {
+            when (hour) {
+                12 -> 12
+                in 1..11 -> hour + 12
+                else -> hour
+            }
+        }
+        false -> {
+            when (hour) {
+                12 -> 0
+                else -> hour
+            }
+        }
+        null -> hour
+    }
+
+    calendar.set(Calendar.HOUR_OF_DAY, hour24.coerceIn(0, 23))
+    calendar.set(Calendar.MINUTE, minute.coerceIn(0, 59))
+    calendar.set(Calendar.SECOND, 0)
+    calendar.set(Calendar.MILLISECOND, 0)
+    if (calendar.timeInMillis <= System.currentTimeMillis()) {
+        calendar.add(Calendar.DAY_OF_MONTH, 1)
+    }
+
+    // Title: remove common connectors + remove time portion
+    var title = trimmed
+    title = title.replaceRange(matchedRange, "").trim()
+    title = title.replace(Regex("\\b(at|@)\\b", RegexOption.IGNORE_CASE), " ")
+    title = title.replace(Regex("\\b(ko|पर|pe)\\b", RegexOption.IGNORE_CASE), " ")
+    title = title.replace(Regex("\\s+"), " ").trim()
+
+    if (title.isBlank()) return null
+    return LocalParsedInput(title = title, triggerTime = calendar.timeInMillis)
+}
+
+// Helper to carry multiple values from when-expression without extra dependencies
+private data class Quad<A, B, C, D>(val first: A, val second: B, val third: C, val fourth: D)
+
+@Composable
+private fun WheelPickerColumn(
+    modifier: Modifier,
+    items: List<String>,
+    initialIndex: Int,
+    onSelectedIndexChange: (Int) -> Unit
+) {
+    val listState = rememberLazyListState(initialFirstVisibleItemIndex = initialIndex)
+    val flingBehavior = rememberSnapFlingBehavior(lazyListState = listState)
+
+    LaunchedEffect(listState.isScrollInProgress) {
+        if (!listState.isScrollInProgress) {
+            onSelectedIndexChange(listState.firstVisibleItemIndex.coerceIn(0, items.lastIndex))
+        }
+    }
+
+    LazyColumn(
+        modifier = modifier,
+        state = listState,
+        flingBehavior = flingBehavior,
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        items(items.size) { index ->
+            val isSelected = index == listState.firstVisibleItemIndex
+            Text(
+                text = items[index],
+                style = if (isSelected) MaterialTheme.typography.headlineMedium else MaterialTheme.typography.titleMedium,
+                modifier = Modifier
+                    .padding(vertical = 10.dp)
+                    .alpha(if (isSelected) 1f else 0.35f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis
+            )
+        }
+    }
+}
 
 enum class ChatState {
     IDLE,           // Waiting for user to start
@@ -564,6 +693,7 @@ fun TasksScreen(
     // Conversational state - store user's answers
     var reminderTitle by remember { mutableStateOf("") }
     var reminderTime by remember { mutableStateOf<String?>(null) }
+    var explicitTriggerTime by remember { mutableStateOf<Long?>(null) }
     var reminderPriority by remember { mutableStateOf("MEDIUM") }
     var reminderSound by remember { mutableStateOf("sound") }
     var selectedApp by remember { mutableStateOf<com.groupflow.app.service.AppInfo?>(null) }
@@ -841,6 +971,8 @@ fun TasksScreen(
                                                 onReminderTitleChange = { reminderTitle = it },
                                                 reminderTime = reminderTime,
                                                 onReminderTimeChange = { reminderTime = it },
+                                                explicitTriggerTime = explicitTriggerTime,
+                                                onExplicitTriggerTimeChange = { explicitTriggerTime = it },
                                                 reminderPriority = reminderPriority,
                                                 onReminderPriorityChange = { reminderPriority = it },
                                                 reminderSound = reminderSound,
@@ -876,6 +1008,8 @@ fun TasksScreen(
                                             onReminderTitleChange = { reminderTitle = it },
                                             reminderTime = reminderTime,
                                             onReminderTimeChange = { reminderTime = it },
+                                            explicitTriggerTime = explicitTriggerTime,
+                                            onExplicitTriggerTimeChange = { explicitTriggerTime = it },
                                             reminderPriority = reminderPriority,
                                             onReminderPriorityChange = { reminderPriority = it },
                                             reminderSound = reminderSound,
@@ -2187,12 +2321,18 @@ fun AddReminderDialog(
     var description by remember { mutableStateOf("") }
     
     // Initialize with current time
-    val calendar = Calendar.getInstance()
-    var selectedHour by remember { mutableStateOf(calendar.get(Calendar.HOUR)) }
-    var selectedMinute by remember { mutableStateOf(calendar.get(Calendar.MINUTE)) }
-    var isAM by remember { mutableStateOf(calendar.get(Calendar.AM_PM) == Calendar.AM) }
+    val now = remember { Calendar.getInstance() }
+    var selectedDateMillis by remember { mutableStateOf(now.timeInMillis) }
+    var selectedHour by remember {
+        mutableStateOf(
+            now.get(Calendar.HOUR).let { if (it == 0) 12 else it }
+        )
+    }
+    var selectedMinute by remember { mutableStateOf(now.get(Calendar.MINUTE)) }
+    var isAM by remember { mutableStateOf(now.get(Calendar.AM_PM) == Calendar.AM) }
     var selectedPriority by remember { mutableStateOf(ReminderPriority.MEDIUM) }
     var showTimePicker by remember { mutableStateOf(false) }
+    var showDatePicker by remember { mutableStateOf(false) }
     
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -2240,6 +2380,29 @@ fun AddReminderDialog(
                             "${selectedHour.toString().padStart(2, '0')}:${selectedMinute.toString().padStart(2, '0')} ${if (isAM) "AM" else "PM"}",
                             style = MaterialTheme.typography.titleMedium,
                             color = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+
+                // Date Display - Click to open date picker
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    onClick = { showDatePicker = true }
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text("Date", style = MaterialTheme.typography.bodyMedium)
+                        Text(
+                            text = SimpleDateFormat("EEE, dd MMM", Locale.getDefault()).format(Date(selectedDateMillis)),
+                            style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                 }
@@ -2305,7 +2468,7 @@ fun AddReminderDialog(
             Button(
                 onClick = {
                     if (title.isNotBlank()) {
-                        val calendar = Calendar.getInstance()
+                        val calendar = Calendar.getInstance().apply { timeInMillis = selectedDateMillis }
                         val hour24 = if (isAM) {
                             if (selectedHour == 12) 0 else selectedHour
                         } else {
@@ -2314,11 +2477,13 @@ fun AddReminderDialog(
                         calendar.set(Calendar.HOUR_OF_DAY, hour24)
                         calendar.set(Calendar.MINUTE, selectedMinute)
                         calendar.set(Calendar.SECOND, 0)
-                        
+                        calendar.set(Calendar.MILLISECOND, 0)
+
+                        // If user picked today + time already passed, move to next day
                         if (calendar.timeInMillis < System.currentTimeMillis()) {
                             calendar.add(Calendar.DAY_OF_MONTH, 1)
                         }
-                        
+
                         onAdd(title, description, calendar.timeInMillis, selectedPriority)
                     }
                 },
@@ -2339,67 +2504,50 @@ fun AddReminderDialog(
             onDismissRequest = { showTimePicker = false },
             title = { Text("Select Time") },
             text = {
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                val hours = (1..12).map { it.toString().padStart(2, '0') }
+                val minutes = (0..59).map { it.toString().padStart(2, '0') }
+                val ampm = listOf("AM", "PM")
+
+                var hourIndex by remember { mutableStateOf((selectedHour.coerceIn(1, 12) - 1).coerceIn(0, 11)) }
+                var minuteIndex by remember { mutableStateOf(selectedMinute.coerceIn(0, 59)) }
+                var ampmIndex by remember { mutableStateOf(if (isAM) 0 else 1) }
+
+                LaunchedEffect(hourIndex) { selectedHour = hourIndex + 1 }
+                LaunchedEffect(minuteIndex) { selectedMinute = minuteIndex }
+                LaunchedEffect(ampmIndex) { isAM = ampmIndex == 0 }
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 180.dp),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Hour Slider
-                    Column(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Text("Hour: $selectedHour")
-                        Slider(
-                            value = selectedHour.toFloat(),
-                            onValueChange = { selectedHour = it.toInt() },
-                            valueRange = if (isAM) 1f..11f else 1f..12f,
-                            steps = if (isAM) 10 else 11,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-                    
-                    // Minute Slider
-                    Column(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Text("Minute: ${selectedMinute.toString().padStart(2, '0')}")
-                        Slider(
-                            value = selectedMinute.toFloat(),
-                            onValueChange = { selectedMinute = it.toInt() },
-                            valueRange = 0f..59f,
-                            steps = 59,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-                    
-                    // AM/PM Toggle
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Button(
-                            onClick = { isAM = true },
-                            modifier = Modifier.weight(1f),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = if (isAM) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface
-                            )
-                        ) {
-                            Text("AM")
-                        }
-                        Button(
-                            onClick = { isAM = false },
-                            modifier = Modifier.weight(1f),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = if (!isAM) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface
-                            )
-                        ) {
-                            Text("PM")
-                        }
-                    }
+                    WheelPickerColumn(
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(min = 180.dp),
+                        items = hours,
+                        initialIndex = hourIndex,
+                        onSelectedIndexChange = { hourIndex = it }
+                    )
+                    Text(":", style = MaterialTheme.typography.headlineMedium)
+                    WheelPickerColumn(
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(min = 180.dp),
+                        items = minutes,
+                        initialIndex = minuteIndex,
+                        onSelectedIndexChange = { minuteIndex = it }
+                    )
+                    WheelPickerColumn(
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(min = 180.dp),
+                        items = ampm,
+                        initialIndex = ampmIndex,
+                        onSelectedIndexChange = { ampmIndex = it.coerceIn(0, 1) }
+                    )
                 }
             },
             confirmButton = {
@@ -2408,6 +2556,28 @@ fun AddReminderDialog(
                 }
             }
         )
+    }
+
+    if (showDatePicker) {
+        val datePickerState = rememberDatePickerState(initialSelectedDateMillis = selectedDateMillis)
+        DatePickerDialog(
+            onDismissRequest = { showDatePicker = false },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        datePickerState.selectedDateMillis?.let { selectedDateMillis = it }
+                        showDatePicker = false
+                    }
+                ) {
+                    Text("OK")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDatePicker = false }) { Text("Cancel") }
+            }
+        ) {
+            DatePicker(state = datePickerState)
+        }
     }
 }
 
@@ -2427,12 +2597,18 @@ fun EditReminderDialog(
     var description by remember { mutableStateOf(reminder.description) }
     
     // Initialize with reminder's time
-    val calendar = Calendar.getInstance().apply { timeInMillis = reminder.triggerTime }
-    var selectedHour by remember { mutableStateOf(calendar.get(Calendar.HOUR)) }
-    var selectedMinute by remember { mutableStateOf(calendar.get(Calendar.MINUTE)) }
-    var isAM by remember { mutableStateOf(calendar.get(Calendar.AM_PM) == Calendar.AM) }
+    val initialCalendar = remember { Calendar.getInstance().apply { timeInMillis = reminder.triggerTime } }
+    var selectedDateMillis by remember { mutableStateOf(initialCalendar.timeInMillis) }
+    var selectedHour by remember {
+        mutableStateOf(
+            initialCalendar.get(Calendar.HOUR).let { if (it == 0) 12 else it }
+        )
+    }
+    var selectedMinute by remember { mutableStateOf(initialCalendar.get(Calendar.MINUTE)) }
+    var isAM by remember { mutableStateOf(initialCalendar.get(Calendar.AM_PM) == Calendar.AM) }
     var selectedPriority by remember { mutableStateOf(reminder.priority) }
     var showTimePicker by remember { mutableStateOf(false) }
+    var showDatePicker by remember { mutableStateOf(false) }
     
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -2547,7 +2723,7 @@ fun EditReminderDialog(
             Button(
                 onClick = {
                     if (title.isNotBlank()) {
-                        val calendar = Calendar.getInstance()
+                        val calendar = Calendar.getInstance().apply { timeInMillis = selectedDateMillis }
                         val hour24 = if (isAM) {
                             if (selectedHour == 12) 0 else selectedHour
                         } else {
@@ -2556,6 +2732,7 @@ fun EditReminderDialog(
                         calendar.set(Calendar.HOUR_OF_DAY, hour24)
                         calendar.set(Calendar.MINUTE, selectedMinute)
                         calendar.set(Calendar.SECOND, 0)
+                        calendar.set(Calendar.MILLISECOND, 0)
                         
                         if (calendar.timeInMillis < System.currentTimeMillis()) {
                             calendar.add(Calendar.DAY_OF_MONTH, 1)
@@ -2581,64 +2758,50 @@ fun EditReminderDialog(
             onDismissRequest = { showTimePicker = false },
             title = { Text("Select Time") },
             text = {
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(16.dp)
+                val hours = (1..12).map { it.toString().padStart(2, '0') }
+                val minutes = (0..59).map { it.toString().padStart(2, '0') }
+                val ampm = listOf("AM", "PM")
+
+                var hourIndex by remember { mutableStateOf((selectedHour.coerceIn(1, 12) - 1).coerceIn(0, 11)) }
+                var minuteIndex by remember { mutableStateOf(selectedMinute.coerceIn(0, 59)) }
+                var ampmIndex by remember { mutableStateOf(if (isAM) 0 else 1) }
+
+                LaunchedEffect(hourIndex) { selectedHour = hourIndex + 1 }
+                LaunchedEffect(minuteIndex) { selectedMinute = minuteIndex }
+                LaunchedEffect(ampmIndex) { isAM = ampmIndex == 0 }
+
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(min = 180.dp),
+                    horizontalArrangement = Arrangement.SpaceEvenly,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    // Hour Slider
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Text("Hour: $selectedHour")
-                        Slider(
-                            value = selectedHour.toFloat(),
-                            onValueChange = { selectedHour = it.toInt() },
-                            valueRange = if (isAM) 1f..11f else 1f..12f,
-                            steps = if (isAM) 10 else 11,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-                    
-                    // Minute Slider
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Text("Minute: ${selectedMinute.toString().padStart(2, '0')}")
-                        Slider(
-                            value = selectedMinute.toFloat(),
-                            onValueChange = { selectedMinute = it.toInt() },
-                            valueRange = 0f..59f,
-                            steps = 59,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                    }
-                    
-                    // AM/PM Toggle
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Button(
-                            onClick = { isAM = true },
-                            modifier = Modifier.weight(1f),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = if (isAM) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary
-                            )
-                        ) {
-                            Text("AM")
-                        }
-                        Button(
-                            onClick = { isAM = false },
-                            modifier = Modifier.weight(1f),
-                            colors = ButtonDefaults.buttonColors(
-                                containerColor = if (!isAM) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary
-                            )
-                        ) {
-                            Text("PM")
-                        }
-                    }
+                    WheelPickerColumn(
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(min = 180.dp),
+                        items = hours,
+                        initialIndex = hourIndex,
+                        onSelectedIndexChange = { hourIndex = it }
+                    )
+                    Text(":", style = MaterialTheme.typography.headlineMedium)
+                    WheelPickerColumn(
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(min = 180.dp),
+                        items = minutes,
+                        initialIndex = minuteIndex,
+                        onSelectedIndexChange = { minuteIndex = it }
+                    )
+                    WheelPickerColumn(
+                        modifier = Modifier
+                            .weight(1f)
+                            .heightIn(min = 180.dp),
+                        items = ampm,
+                        initialIndex = ampmIndex,
+                        onSelectedIndexChange = { ampmIndex = it.coerceIn(0, 1) }
+                    )
                 }
             },
             confirmButton = {
@@ -2647,6 +2810,28 @@ fun EditReminderDialog(
                 }
             }
         )
+    }
+
+    if (showDatePicker) {
+        val datePickerState = rememberDatePickerState(initialSelectedDateMillis = selectedDateMillis)
+        DatePickerDialog(
+            onDismissRequest = { showDatePicker = false },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        datePickerState.selectedDateMillis?.let { selectedDateMillis = it }
+                        showDatePicker = false
+                    }
+                ) {
+                    Text("OK")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDatePicker = false }) { Text("Cancel") }
+            }
+        ) {
+            DatePicker(state = datePickerState)
+        }
     }
 }
 
@@ -2667,6 +2852,8 @@ private suspend fun processConversationalInput(
     onReminderTitleChange: (String) -> Unit,
     reminderTime: String?,
     onReminderTimeChange: (String?) -> Unit,
+    explicitTriggerTime: Long?,
+    onExplicitTriggerTimeChange: (Long?) -> Unit,
     reminderPriority: String,
     onReminderPriorityChange: (String) -> Unit,
     reminderSound: String,
@@ -2694,14 +2881,62 @@ private suspend fun processConversationalInput(
                 onQuestionChange("Select an app to open")
                 onStateChange(ChatState.ASKING_APP)
             } else {
-                // Normal reminder flow
+                // Normal reminder flow (single-sentence supported)
                 onAddMessage(true, input)
-                onReminderTitleChange(input)
-                onClearInput()
-                val question = "What time should I remind you? (e.g., 'in 5 minutes', 'at 3 PM', 'tomorrow morning')"
-                onQuestionChange(question)
-                onAddMessage(false, question)
-                onStateChange(ChatState.ASKING_TIME)
+
+                val hasDevanagari = containsDevanagari(input)
+                val localParsed = if (hasDevanagari || input.any { it.isDigit() }) {
+                    parseExplicitClockTime(input)
+                } else {
+                    null
+                }
+
+                if (localParsed != null) {
+                    // English/Hindi explicit clock time -> trust local parse for exact scheduling
+                    onReminderTitleChange(localParsed.title)
+                    onExplicitTriggerTimeChange(localParsed.triggerTime)
+                    onReminderTimeChange("explicit")
+                    onClearInput()
+                    val question = "What priority? (low, medium, high, urgent)"
+                    onQuestionChange(question)
+                    onAddMessage(false, question)
+                    onStateChange(ChatState.ASKING_PRIORITY)
+                } else {
+                    // Fallback: Gemini parses (useful for other languages / relative times)
+                    val parseResult = geminiAIService.parseReminder(input, viewModel.currentUserId.value)
+                    parseResult.onSuccess { parsedReminder ->
+                        onReminderTitleChange(parsedReminder.title)
+                        // If user mentioned a time, Gemini gives triggerTime. Use it directly.
+                        val now = System.currentTimeMillis()
+                        if (parsedReminder.triggerTime > now + 60000) {
+                            onExplicitTriggerTimeChange(parsedReminder.triggerTime)
+                            onReminderTimeChange("ai")
+                            onClearInput()
+                            val question = "What priority? (low, medium, high, urgent)"
+                            onQuestionChange(question)
+                            onAddMessage(false, question)
+                            onStateChange(ChatState.ASKING_PRIORITY)
+                        } else {
+                            // No reliable time extracted -> ask user
+                            onExplicitTriggerTimeChange(null)
+                            onReminderTimeChange(null)
+                            onClearInput()
+                            val question = "What time should I remind you? (e.g., 'in 5 minutes', 'at 3 PM', 'tomorrow morning')"
+                            onQuestionChange(question)
+                            onAddMessage(false, question)
+                            onStateChange(ChatState.ASKING_TIME)
+                        }
+                    }.onFailure {
+                        onReminderTitleChange(input)
+                        onExplicitTriggerTimeChange(null)
+                        onReminderTimeChange(null)
+                        onClearInput()
+                        val question = "What time should I remind you? (e.g., 'in 5 minutes', 'at 3 PM', 'tomorrow morning')"
+                        onQuestionChange(question)
+                        onAddMessage(false, question)
+                        onStateChange(ChatState.ASKING_TIME)
+                    }
+                }
             }
         }
         
@@ -2734,9 +2969,19 @@ private suspend fun processConversationalInput(
         }
         
         ChatState.ASKING_TIME -> {
-            // User provided time - parse with AI
+            // User provided time
             onAddMessage(true, input)
-            onReminderTimeChange(input)
+
+            val localParsed = parseExplicitClockTime("${reminderTitle} $input")
+            if (localParsed != null) {
+                // If user typed an explicit clock time, keep it exact
+                onExplicitTriggerTimeChange(localParsed.triggerTime)
+                onReminderTimeChange("explicit")
+            } else {
+                onReminderTimeChange(input)
+                onExplicitTriggerTimeChange(null)
+            }
+
             onClearInput()
             val question = "What priority? (low, medium, high, urgent)"
             onQuestionChange(question)
@@ -2881,21 +3126,25 @@ private suspend fun processConversationalInput(
                     }
                 } else {
                     // Normal reminder flow
-                    val fullInput = "Remind me: $reminderTitle at $reminderTime"
-                    val result = geminiAIService.parseReminder(fullInput, viewModel.currentUserId.value)
-                    result.onSuccess { parsedReminder ->
-                        android.util.Log.d("TasksScreen", "Parsed: ${parsedReminder.title}, time: ${parsedReminder.triggerTime}")
-                        
+                    if (explicitTriggerTime != null) {
+                        // Exact time from English/Hindi explicit clock parsing OR Gemini pre-parse in IDLE
+                        triggerTime = explicitTriggerTime
+                        title = reminderTitle
+                    } else {
+                        val fullInput = "Remind me: $reminderTitle at $reminderTime"
+                        val parsedReminder = geminiAIService
+                            .parseReminder(fullInput, viewModel.currentUserId.value)
+                            .getOrNull()
                         val currentTime = System.currentTimeMillis()
-                        triggerTime = if (parsedReminder.triggerTime > currentTime + 60000) {
+                        triggerTime = if (parsedReminder != null && parsedReminder.triggerTime > currentTime + 60000) {
                             parsedReminder.triggerTime
                         } else {
                             val calendar = java.util.Calendar.getInstance()
                             calendar.add(java.util.Calendar.MINUTE, 2)
                             calendar.timeInMillis
                         }
-                        
-                        title = reminderTitle
+                        title = reminderTitle.ifBlank { parsedReminder?.title ?: reminderTitle }
+                    }
                         
                         val finalPriority = when (reminderPriority) {
                             "URGENT" -> ReminderPriority.URGENT
@@ -2919,46 +3168,12 @@ private suspend fun processConversationalInput(
                         
                         onReminderTitleChange("")
                         onReminderTimeChange(null)
+                        onExplicitTriggerTimeChange(null)
                         onReminderPriorityChange("MEDIUM")
                         onReminderSoundChange("sound")
                         
                         kotlinx.coroutines.delay(1500)
                         onStateChange(ChatState.IDLE)
-                    }.onFailure { error ->
-                        android.util.Log.e("TasksScreen", "AI parsing failed: ${error.message}", error)
-                        val calendar = java.util.Calendar.getInstance()
-                        calendar.add(java.util.Calendar.MINUTE, 2)
-                        triggerTime = calendar.timeInMillis
-                        title = reminderTitle
-                        
-                        val finalPriority = when (reminderPriority) {
-                            "URGENT" -> ReminderPriority.URGENT
-                            "HIGH" -> ReminderPriority.HIGH
-                            "LOW" -> ReminderPriority.LOW
-                            else -> ReminderPriority.MEDIUM
-                        }
-                        
-                        viewModel.createReminder(
-                            title = title,
-                            description = "",
-                            triggerTime = triggerTime,
-                            priority = finalPriority,
-                            isRecurring = false
-                        )
-                        
-                        val fallbackMsg = "Reminder created! What else?"
-                        onQuestionChange(fallbackMsg)
-                        onAddMessage(false, fallbackMsg)
-                        onClearInput()
-                        
-                        onReminderTitleChange("")
-                        onReminderTimeChange(null)
-                        onReminderPriorityChange("MEDIUM")
-                        onReminderSoundChange("sound")
-                        
-                        kotlinx.coroutines.delay(1500)
-                        onStateChange(ChatState.IDLE)
-                    }
                 }
             } catch (e: Exception) {
                 android.util.Log.e("TasksScreen", "Exception: ${e.message}", e)
@@ -2994,6 +3209,7 @@ private suspend fun processConversationalInput(
                 
                 onReminderTitleChange("")
                 onReminderTimeChange(null)
+                onExplicitTriggerTimeChange(null)
                 onReminderPriorityChange("MEDIUM")
                 onReminderSoundChange("sound")
                 onSelectedAppChange(null)

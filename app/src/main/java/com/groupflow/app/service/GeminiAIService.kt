@@ -246,6 +246,11 @@ class GeminiAIService(private val context: Context) {
     private fun calculateTriggerTimeFromTimeStr(timeStr: String, input: String): Long {
         val calendar = Calendar.getInstance()
         try {
+            val lowerInput = input.lowercase(Locale.getDefault())
+
+            // Apply date hints (next month / tomorrow / after X days etc.) before setting clock time
+            applyDateHints(calendar, lowerInput)
+
             val parts = timeStr.split(":")
             if (parts.size == 2) {
                 val hour = parts[0].toIntOrNull() ?: 0
@@ -267,10 +272,64 @@ class GeminiAIService(private val context: Context) {
         }
         return calendar.timeInMillis
     }
+
+    private fun applyDateHints(calendar: Calendar, lowerInput: String) {
+        // English: next month 21 / next month on 21
+        val nextMonthDay = Regex("next\\s+month\\s+(?:on\\s+)?(\\d{1,2})").find(lowerInput)
+            ?: Regex("(?:on\\s+)?(\\d{1,2})(?:st|nd|rd|th)?\\s+next\\s+month").find(lowerInput)
+        if (nextMonthDay != null) {
+            val day = nextMonthDay.groupValues[1].toIntOrNull()
+            calendar.add(Calendar.MONTH, 1)
+            if (day != null) {
+                calendar.set(Calendar.DAY_OF_MONTH, day.coerceIn(1, calendar.getActualMaximum(Calendar.DAY_OF_MONTH)))
+            }
+            return
+        }
+
+        // Hindi: अगले महीने 21 / अगले महीने 21 तारीख
+        val hiNextMonthDay = Regex("अगले\\s+महीने\\s+(\\d{1,2})").find(lowerInput)
+            ?: Regex("अगले\\s+महीने\\s+(\\d{1,2})\\s*तारीख").find(lowerInput)
+        if (hiNextMonthDay != null) {
+            val day = hiNextMonthDay.groupValues[1].toIntOrNull()
+            calendar.add(Calendar.MONTH, 1)
+            if (day != null) {
+                calendar.set(Calendar.DAY_OF_MONTH, day.coerceIn(1, calendar.getActualMaximum(Calendar.DAY_OF_MONTH)))
+            }
+            return
+        }
+
+        // English relative days
+        Regex("(after|in)\\s+(\\d+)\\s*days?").find(lowerInput)?.let {
+            val days = it.groupValues[2].toIntOrNull() ?: 0
+            if (days > 0) calendar.add(Calendar.DAY_OF_YEAR, days)
+            return
+        }
+
+        // Hindi relative days: "2 दिन बाद"
+        Regex("(\\d+)\\s*दिन\\s*बाद").find(lowerInput)?.let {
+            val days = it.groupValues[1].toIntOrNull() ?: 0
+            if (days > 0) calendar.add(Calendar.DAY_OF_YEAR, days)
+            return
+        }
+
+        // Tomorrow / next week
+        if (lowerInput.contains("tomorrow") || lowerInput.contains("कल")) {
+            calendar.add(Calendar.DAY_OF_YEAR, 1)
+            return
+        }
+        // Day after tomorrow
+        if (lowerInput.contains("day after tomorrow") || lowerInput.contains("परसों")) {
+            calendar.add(Calendar.DAY_OF_YEAR, 2)
+            return
+        }
+        if (lowerInput.contains("next week") || lowerInput.contains("अगले हफ्ते") || lowerInput.contains("अगले सप्ताह")) {
+            calendar.add(Calendar.DAY_OF_YEAR, 7)
+        }
+    }
     
     private fun calculateTriggerTime(input: String, currentTime: String): Long {
         val calendar = Calendar.getInstance()
-        val lowerInput = input.lowercase()
+        val lowerInput = input.lowercase(Locale.getDefault())
         
         android.util.Log.d("GeminiAIService", "Calculating trigger time for input: $input")
         
@@ -327,8 +386,27 @@ class GeminiAIService(private val context: Context) {
                 calendar.set(Calendar.MINUTE, 0)
                 android.util.Log.d("GeminiAIService", "Matched $days days")
             }
+            // Hindi relative days: "2 दिन बाद"
+            lowerInput.matches(Regex("(\\d+)\\s*दिन\\s*बाद")) -> {
+                val match = Regex("(\\d+)\\s*दिन\\s*बाद").find(lowerInput)
+                val days = match?.groupValues?.get(1)?.toIntOrNull() ?: 1
+                calendar.add(Calendar.DAY_OF_YEAR, days)
+                calendar.set(Calendar.HOUR_OF_DAY, 9)
+                calendar.set(Calendar.MINUTE, 0)
+                android.util.Log.d("GeminiAIService", "Matched $days दिन बाद")
+            }
             lowerInput.contains("after 1 day") || lowerInput.contains("in 1 day") || lowerInput.contains("tomorrow") -> {
                 calendar.add(Calendar.DAY_OF_YEAR, 1)
+                calendar.set(Calendar.HOUR_OF_DAY, 9)
+                calendar.set(Calendar.MINUTE, 0)
+            }
+            lowerInput.contains("कल") -> {
+                calendar.add(Calendar.DAY_OF_YEAR, 1)
+                calendar.set(Calendar.HOUR_OF_DAY, 9)
+                calendar.set(Calendar.MINUTE, 0)
+            }
+            lowerInput.contains("परसों") -> {
+                calendar.add(Calendar.DAY_OF_YEAR, 2)
                 calendar.set(Calendar.HOUR_OF_DAY, 9)
                 calendar.set(Calendar.MINUTE, 0)
             }
@@ -343,6 +421,11 @@ class GeminiAIService(private val context: Context) {
                 calendar.set(Calendar.MINUTE, 0)
             }
             lowerInput.contains("after 7 day") || lowerInput.contains("in 7 day") || lowerInput.contains("next week") -> {
+                calendar.add(Calendar.DAY_OF_YEAR, 7)
+                calendar.set(Calendar.HOUR_OF_DAY, 9)
+                calendar.set(Calendar.MINUTE, 0)
+            }
+            lowerInput.contains("अगले हफ्ते") || lowerInput.contains("अगले सप्ताह") -> {
                 calendar.add(Calendar.DAY_OF_YEAR, 7)
                 calendar.set(Calendar.HOUR_OF_DAY, 9)
                 calendar.set(Calendar.MINUTE, 0)

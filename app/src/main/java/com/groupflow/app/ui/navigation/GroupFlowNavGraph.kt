@@ -43,8 +43,8 @@ sealed class Screen(val route: String, val title: String, val iconSelected: Imag
 // Guest users only see Tasks tab, logged-in users see all tabs
 fun getBottomNavScreens(isLoggedIn: Boolean) = if (isLoggedIn) {
     listOf(
-        Screen.Groups,
         Screen.Tasks,
+        Screen.Groups,
         Screen.Chats,
         Screen.Profile
     )
@@ -69,7 +69,7 @@ fun GroupFlowNavGraph(
     }
 
     // Check if user is authenticated
-    val startDestination = if (currentUser != null) Screen.Groups.route else Screen.Tasks.route
+    val startDestination = if (currentUser != null) Screen.Tasks.route else Screen.Tasks.route
     val isLoggedIn = currentUser != null
     val bottomNavScreens = getBottomNavScreens(isLoggedIn)
     
@@ -134,7 +134,7 @@ fun GroupFlowNavGraph(
             composable(Screen.SignIn.route) {
                 SignInScreen(
                     onSignInSuccess = {
-                        navController.navigate(Screen.Groups.route) {
+                        navController.navigate(Screen.Tasks.route) {
                             popUpTo(Screen.SignIn.route) { inclusive = true }
                         }
                     },

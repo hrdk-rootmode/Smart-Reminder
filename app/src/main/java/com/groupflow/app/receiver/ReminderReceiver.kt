@@ -25,6 +25,18 @@ class ReminderReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         Log.d("ReminderReceiver", "Reminder received!")
         
+        // Check if this is a dismiss action
+        val action = intent.getStringExtra("action")
+        val notificationId = intent.getIntExtra("notification_id", -1)
+        
+        if (action == "dismiss" && notificationId != -1) {
+            // Cancel the notification
+            val notificationManager = NotificationManagerCompat.from(context)
+            notificationManager.cancel(notificationId)
+            Log.d("ReminderReceiver", "Notification dismissed: $notificationId")
+            return
+        }
+        
         val reminderId = intent.getStringExtra("reminder_id") ?: return
         val reminderTitle = intent.getStringExtra("reminder_title") ?: return
         val reminderDescription = intent.getStringExtra("reminder_description") ?: ""
@@ -82,10 +94,10 @@ class ReminderReceiver : BroadcastReceiver() {
             .setAutoCancel(true)  // Allow dismissal by swipe
             .setOngoing(false)  // Don't make it ongoing by default
         
-        // Urgent/High priority: make persistent (ongoing) with full-screen intent
+        // Urgent/High priority: make persistent but allow dismissal
         if (isUrgentOrHigh) {
-            builder.setOngoing(true)  // Cannot be swiped away
-                .setAutoCancel(false)
+            builder.setOngoing(false)  // Allow dismissal
+                .setAutoCancel(true)  // Allow swipe to dismiss
                 .setCategory(NotificationCompat.CATEGORY_ALARM)
                 .setFullScreenIntent(createPendingIntent(context, reminderId), true)
             
