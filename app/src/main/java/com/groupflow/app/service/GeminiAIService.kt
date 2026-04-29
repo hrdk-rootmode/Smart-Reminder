@@ -333,41 +333,53 @@ class GeminiAIService(private val context: Context) {
         
         android.util.Log.d("GeminiAIService", "Calculating trigger time for input: $input")
         
+        // ✅ FIRST: Extract ANY number + minute/hour/day pattern anywhere in input
+        // This catches all cases regardless of extra text
+        Regex("(\\d+)\\s*(minute|min|मिनट)").find(lowerInput)?.let {
+            val minutes = it.groupValues[1].toIntOrNull() ?: 5
+            calendar.add(Calendar.MINUTE, minutes)
+            android.util.Log.d("GeminiAIService", "✅ Matched $minutes minutes")
+            return calendar.timeInMillis
+        }
+        
+        Regex("(\\d+)\\s*(hour|hr|घंटा)").find(lowerInput)?.let {
+            val hours = it.groupValues[1].toIntOrNull() ?: 1
+            calendar.add(Calendar.HOUR_OF_DAY, hours)
+            android.util.Log.d("GeminiAIService", "✅ Matched $hours hours")
+            return calendar.timeInMillis
+        }
+        
+        Regex("(\\d+)\\s*(day|din|दिन)").find(lowerInput)?.let {
+            val days = it.groupValues[1].toIntOrNull() ?: 1
+            calendar.add(Calendar.DAY_OF_YEAR, days)
+            calendar.set(Calendar.HOUR_OF_DAY, 9)
+            calendar.set(Calendar.MINUTE, 0)
+            android.util.Log.d("GeminiAIService", "✅ Matched $days days")
+            return calendar.timeInMillis
+        }
+
         // Handle relative time expressions
         when {
-            // Minutes - more flexible pattern matching
-            lowerInput.matches(Regex("(after|in)\\s+(\\d+)\\s*minutes?")) -> {
-                val match = Regex("(after|in)\\s+(\\d+)\\s*minutes?").find(lowerInput)
-                val minutes = match?.groupValues?.get(2)?.toIntOrNull() ?: 2
+            // Minutes
+            Regex("(after|in|बाद)\\s*(\\d+)\\s*minutes?").find(lowerInput)?.let { match ->
+                val minutes = match.groupValues[2].toIntOrNull() ?: 2
                 calendar.add(Calendar.MINUTE, minutes)
-                android.util.Log.d("GeminiAIService", "Matched $minutes minutes")
-            }
-            lowerInput.matches(Regex("(after|in)\\s+(\\d+)\\s*min")) -> {
-                val match = Regex("(after|in)\\s+(\\d+)\\s*min").find(lowerInput)
-                val minutes = match?.groupValues?.get(2)?.toIntOrNull() ?: 2
+                android.util.Log.d("GeminiAIService", "✅ Matched $minutes minutes")
+                true
+            } == true -> Unit
+            Regex("(after|in|बाद)\\s*(\\d+)\\s*min").find(lowerInput)?.let { match ->
+                val minutes = match.groupValues[2].toIntOrNull() ?: 2
                 calendar.add(Calendar.MINUTE, minutes)
-                android.util.Log.d("GeminiAIService", "Matched $minutes min")
-            }
-            // Specific minute patterns
-            lowerInput.contains("after 5 minute") || lowerInput.contains("in 5 minute") -> {
-                calendar.add(Calendar.MINUTE, 5)
-            }
-            lowerInput.contains("after 10 minute") || lowerInput.contains("in 10 minute") -> {
-                calendar.add(Calendar.MINUTE, 10)
-            }
-            lowerInput.contains("after 15 minute") || lowerInput.contains("in 15 minute") -> {
-                calendar.add(Calendar.MINUTE, 15)
-            }
-            lowerInput.contains("after 30 minute") || lowerInput.contains("in 30 minute") -> {
-                calendar.add(Calendar.MINUTE, 30)
-            }
+                android.util.Log.d("GeminiAIService", "✅ Matched $minutes min")
+                true
+            } == true -> Unit
             // Hours
-            lowerInput.matches(Regex("(after|in)\\s+(\\d+)\\s*hours?")) -> {
-                val match = Regex("(after|in)\\s+(\\d+)\\s*hours?").find(lowerInput)
-                val hours = match?.groupValues?.get(2)?.toIntOrNull() ?: 1
+            Regex("(after|in|बाद)\\s*(\\d+)\\s*hours?").find(lowerInput)?.let { match ->
+                val hours = match.groupValues[2].toIntOrNull() ?: 1
                 calendar.add(Calendar.HOUR_OF_DAY, hours)
-                android.util.Log.d("GeminiAIService", "Matched $hours hours")
-            }
+                android.util.Log.d("GeminiAIService", "✅ Matched $hours hours")
+                true
+            } == true -> Unit
             lowerInput.contains("after 1 hour") || lowerInput.contains("in 1 hour") -> {
                 calendar.add(Calendar.HOUR_OF_DAY, 1)
             }
@@ -378,23 +390,15 @@ class GeminiAIService(private val context: Context) {
                 calendar.add(Calendar.HOUR_OF_DAY, 3)
             }
             // Days
-            lowerInput.matches(Regex("(after|in)\\s+(\\d+)\\s*days?")) -> {
-                val match = Regex("(after|in)\\s+(\\d+)\\s*days?").find(lowerInput)
-                val days = match?.groupValues?.get(2)?.toIntOrNull() ?: 1
+            Regex("(after|in|बाद)\\s*(\\d+)\\s*days?").find(lowerInput)?.let { match ->
+                val days = match.groupValues[2].toIntOrNull() ?: 1
                 calendar.add(Calendar.DAY_OF_YEAR, days)
                 calendar.set(Calendar.HOUR_OF_DAY, 9)
                 calendar.set(Calendar.MINUTE, 0)
-                android.util.Log.d("GeminiAIService", "Matched $days days")
-            }
-            // Hindi relative days: "2 दिन बाद"
-            lowerInput.matches(Regex("(\\d+)\\s*दिन\\s*बाद")) -> {
-                val match = Regex("(\\d+)\\s*दिन\\s*बाद").find(lowerInput)
-                val days = match?.groupValues?.get(1)?.toIntOrNull() ?: 1
-                calendar.add(Calendar.DAY_OF_YEAR, days)
-                calendar.set(Calendar.HOUR_OF_DAY, 9)
-                calendar.set(Calendar.MINUTE, 0)
-                android.util.Log.d("GeminiAIService", "Matched $days दिन बाद")
-            }
+                android.util.Log.d("GeminiAIService", "✅ Matched $days days")
+                true
+            } == true -> Unit
+            // Hindi relative days: "2 दिन बाद" - already handled at top, kept for backwards compatibility
             lowerInput.contains("after 1 day") || lowerInput.contains("in 1 day") || lowerInput.contains("tomorrow") -> {
                 calendar.add(Calendar.DAY_OF_YEAR, 1)
                 calendar.set(Calendar.HOUR_OF_DAY, 9)
