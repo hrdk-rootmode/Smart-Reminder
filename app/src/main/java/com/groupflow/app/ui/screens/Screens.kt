@@ -21,6 +21,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
+import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -218,27 +219,67 @@ private fun WheelPickerColumn(
 
     LaunchedEffect(listState.isScrollInProgress) {
         if (!listState.isScrollInProgress) {
-            onSelectedIndexChange(listState.firstVisibleItemIndex.coerceIn(0, items.lastIndex))
+            val centerIndex = listState.firstVisibleItemIndex + 1
+            if (centerIndex >= 0 && centerIndex < items.size) {
+                onSelectedIndexChange(centerIndex)
+            }
         }
     }
 
-    LazyColumn(
-        modifier = modifier,
-        state = listState,
-        flingBehavior = flingBehavior,
-        horizontalAlignment = Alignment.CenterHorizontally
-    ) {
-        items(items.size) { index ->
-            val isSelected = index == listState.firstVisibleItemIndex
-            Text(
-                text = items[index],
-                style = if (isSelected) MaterialTheme.typography.headlineMedium else MaterialTheme.typography.titleMedium,
-                modifier = Modifier
-                    .padding(vertical = 10.dp)
-                    .alpha(if (isSelected) 1f else 0.35f),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+    // Calculate the index to scroll to based on selected index
+    LaunchedEffect(initialIndex) {
+        listState.scrollToItem(initialIndex - 1)
+    }
+
+    Box(modifier = modifier) {
+        // Selection indicator overlay
+        Box(
+            modifier = Modifier
+                .align(Alignment.Center)
+                .fillMaxWidth()
+                .height(56.dp)
+                .background(
+                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.2f),
+                    shape = RoundedCornerShape(8.dp)
+                )
+                .border(
+                    2.dp,
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.5f),
+                    shape = RoundedCornerShape(8.dp)
+                )
+        )
+
+        LazyColumn(
+            modifier = Modifier.fillMaxSize(),
+            state = listState,
+            flingBehavior = flingBehavior,
+            horizontalAlignment = Alignment.CenterHorizontally,
+            contentPadding = PaddingValues(vertical = 80.dp)
+        ) {
+            items(items.size) { index ->
+                val centerItemIndex = listState.firstVisibleItemIndex + 1
+                val isSelected = index == centerItemIndex
+                val distance = kotlin.math.abs(index - centerItemIndex)
+                
+                Text(
+                    text = items[index],
+                    style = if (isSelected) MaterialTheme.typography.headlineMedium else MaterialTheme.typography.titleMedium,
+                    color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier
+                        .padding(vertical = 4.dp)
+                        .height(48.dp)
+                        .alpha(
+                            when {
+                                isSelected -> 1f
+                                distance == 1 -> 0.7f
+                                distance == 2 -> 0.4f
+                                else -> 0.15f
+                            }
+                        ),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
         }
     }
 }
