@@ -14,9 +14,11 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -31,7 +33,6 @@ import androidx.navigation.compose.rememberNavController
 import com.groupflow.app.notification.NotificationHelper
 import com.groupflow.app.service.FirebaseAuthService
 import com.groupflow.app.ui.navigation.GroupFlowNavGraph
-import com.groupflow.app.ui.theme.SmartReminderTheme
 import com.groupflow.app.ui.theme.ThemeManager
 
 class MainActivity : ComponentActivity() {
@@ -68,10 +69,25 @@ class MainActivity : ComponentActivity() {
         }
     }
     
+    fun isSpeechRecognitionAvailable(): Boolean {
+        val pm = packageManager
+        val activities = pm.queryIntentActivities(
+            Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH), 0
+        )
+        return activities.isNotEmpty()
+    }
+    
     fun launchSpeechRecognizer(language: String = "en-US") {
+        if (!isSpeechRecognitionAvailable()) {
+            Log.e("MainActivity", "Speech recognition not available on this device")
+            speechResult = "ERROR_NOT_AVAILABLE"
+            return
+        }
+        
         val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
             putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
             putExtra(RecognizerIntent.EXTRA_LANGUAGE, language)
+            putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, true)
             putExtra(RecognizerIntent.EXTRA_PROMPT, "Speak your reminder...")
             putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
         }
@@ -114,9 +130,41 @@ class MainActivity : ComponentActivity() {
             val currentUser by firebaseAuthService.currentUser.collectAsState(initial = null)
             val userTier = ThemeManager.getUserTier(currentUser)
             val context = LocalContext.current
+            val prefs = remember { context.getSharedPreferences("reminder_prefs", MODE_PRIVATE) }
+            
+            // Theme state management
+            var darkThemeEnabled by remember { mutableStateOf(prefs.getBoolean("dark_theme_enabled", false)) }
+            val followSystemTheme = remember { mutableStateOf(prefs.getBoolean("follow_system_theme", true)) }
+            
+            // System theme detection
+            val systemInDarkTheme = isSystemInDarkTheme()
+            val shouldUseDarkTheme = if (followSystemTheme.value) {
+                systemInDarkTheme
+            } else {
+                darkThemeEnabled
+            }
+
+            DisposableEffect(prefs) {
+                val listener = android.content.SharedPreferences.OnSharedPreferenceChangeListener { sharedPrefs, key ->
+                    when (key) {
+                        "dark_theme_enabled" -> {
+                            darkThemeEnabled = sharedPrefs.getBoolean("dark_theme_enabled", false)
+                        }
+                        "follow_system_theme" -> {
+                            followSystemTheme.value = sharedPrefs.getBoolean("follow_system_theme", true)
+                        }
+                    }
+                }
+                prefs.registerOnSharedPreferenceChangeListener(listener)
+                onDispose { prefs.unregisterOnSharedPreferenceChangeListener(listener) }
+            }
             
             MaterialTheme(
-                colorScheme = ThemeManager.getThemeForUser(userTier, context = context)
+                colorScheme = ThemeManager.getThemeForUser(
+                    tier = userTier,
+                    context = context,
+                    forceDark = shouldUseDarkTheme
+                )
             ) {
                 GroupFlowNavGraph(firebaseAuthService = firebaseAuthService)
             }

@@ -68,13 +68,16 @@ fun GroupFlowNavGraph(
         reminderViewModel.setUserId(it.uid)
     }
 
-    // Check if user is authenticated
-    val startDestination = if (currentUser != null) Screen.Tasks.route else Screen.Tasks.route
+    // Start on sign-in for unauthenticated users to avoid guest-first flicker.
+    val startDestination = if (currentUser != null) Screen.Tasks.route else Screen.SignIn.route
     val isLoggedIn = currentUser != null
     val bottomNavScreens = getBottomNavScreens(isLoggedIn)
     
     // Add reminder dialog state
     var showAddDialog by remember { mutableStateOf(false) }
+    var showMoreMenu by remember { mutableStateOf(false) }
+    var showCalendarView by remember { mutableStateOf(false) }
+    var showReportsView by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
@@ -84,6 +87,35 @@ fun GroupFlowNavGraph(
                     actions = {
                         IconButton(onClick = { }) {
                             Icon(Icons.Default.Search, contentDescription = "Search")
+                        }
+                        // More menu with Calendar and Reports
+                        IconButton(onClick = { showMoreMenu = true }) {
+                            Icon(Icons.Default.MoreVert, contentDescription = "More")
+                        }
+                        DropdownMenu(
+                            expanded = showMoreMenu,
+                            onDismissRequest = { showMoreMenu = false }
+                        ) {
+                            DropdownMenuItem(
+                                text = { Text("Calendar View") },
+                                onClick = {
+                                    showCalendarView = true
+                                    showMoreMenu = false
+                                },
+                                leadingIcon = {
+                                    Icon(Icons.Default.DateRange, contentDescription = null)
+                                }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("Progress Reports") },
+                                onClick = {
+                                    showReportsView = true
+                                    showMoreMenu = false
+                                },
+                                leadingIcon = {
+                                    Icon(Icons.Default.Info, contentDescription = null)
+                                }
+                            )
                         }
                     }
                 )
@@ -160,7 +192,12 @@ fun GroupFlowNavGraph(
                             popUpTo(Screen.SignIn.route) { inclusive = true }
                         }
                     },
-                    isGuest = !isLoggedIn
+                    isGuest = !isLoggedIn,
+                    showCalendarDialog = showCalendarView,
+                    onDismissCalendar = { showCalendarView = false },
+                    onOpenCalendar = { showCalendarView = true },
+                    showReportsDialog = showReportsView,
+                    onDismissReports = { showReportsView = false }
                 )
             }
             composable(Screen.Chats.route) {

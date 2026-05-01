@@ -8,32 +8,95 @@ import android.content.Context.MODE_PRIVATE
 import android.content.Intent
 import android.content.SharedPreferences
 import android.media.AudioManager
+import android.media.MediaPlayer
 import android.media.RingtoneManager
 import android.net.Uri
+import android.os.Handler
+import android.os.Looper
 import android.os.Vibrator
 import android.os.VibratorManager
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.groupflow.app.MainActivity
-import com.groupflow.app.R
 import com.groupflow.app.service.DoNotDisturbManager
 import com.groupflow.app.service.AppAutomationHelper
 import com.groupflow.app.notification.NotificationHelper
+import java.util.concurrent.TimeUnit
 
 class ReminderReceiver : BroadcastReceiver() {
-    override fun onReceive(context: Context, intent: Intent) {
-        Log.d("ReminderReceiver", "Reminder received!")
+    
+    companion object {
+        private var mediaPlayer: MediaPlayer? = null
+        private val handler = Handler(Looper.getMainLooper())
+        private var stopSoundRunnable: Runnable? = null
         
-        // Check if this is a dismiss action
+        fun stopCustomSound() {
+            try {
+                mediaPlayer?.let {
+                    if (it.isPlaying) {
+                        it.stop()
+                    }
+                    it.release()
+                }
+                mediaPlayer = null
+                
+                stopSoundRunnable?.let {
+                    handler.removeCallbacks(it)
+                    stopSoundRunnable = null
+                }
+                
+                Log.d("ReminderReceiver", "Custom sound stopped")
+            } catch (e: Exception) {
+                Log.e("ReminderReceiver", "Error stopping custom sound", e)
+            }
+        }
+    }
+
+    override fun onReceive(context: Context, intent: Intent) {
+        Log.d("ReminderReceiver", "Reminder received! Action: ${intent.getStringExtra("action")}")
+        
+        // Check if this is a dismiss or postpone action
         val action = intent.getStringExtra("action")
         val notificationId = intent.getIntExtra("notification_id", -1)
+        val reminderIdForAction = intent.getStringExtra("reminder_id")
+        val reminderTitleForAction = intent.getStringExtra("reminder_title")
+        val reminderDescriptionForAction = intent.getStringExtra("reminder_description") ?: ""
+        val reminderPriorityForAction = intent.getStringExtra("reminder_priority") ?: "MEDIUM"
         
-        if (action == "dismiss" && notificationId != -1) {
-            // Cancel the notification
+        if (action == "dismiss" && reminderIdForAction != null) {
+            // Stop any playing sound
+            stopCustomSound()
+            // Cancel the notification using the correct ID
             val notificationManager = NotificationManagerCompat.from(context)
-            notificationManager.cancel(notificationId)
-            Log.d("ReminderReceiver", "Notification dismissed: $notificationId")
+            notificationManager.cancel(reminderIdForAction.hashCode())
+            Log.d("ReminderReceiver", "Notification dismissed: $reminderIdForAction")
+            return
+        }
+
+        if (action == "postpone_10m" && reminderIdForAction != null && reminderTitleForAction != null) {
+            stopCustomSound()
+            // Cancel the notification using the correct ID
+            NotificationManagerCompat.from(context).cancel(reminderIdForAction.hashCode())
+            
+            // Reschedule for 10 minutes later
+            NotificationHelper.scheduleReminder(
+                context = context,
+                reminderId = reminderIdForAction,
+                title = reminderTitleForAction,
+                description = reminderDescriptionForAction,
+                priority = reminderPriorityForAction,
+                triggerTime = System.currentTimeMillis() + TimeUnit.MINUTES.toMillis(10)
+            )
+            
+            // Show toast to confirm postpone
+            android.widget.Toast.makeText(
+                context,
+                "Reminder postponed for 10 minutes",
+                android.widget.Toast.LENGTH_SHORT
+            ).show()
+            
+            Log.d("ReminderReceiver", "Reminder postponed by 10 minutes: $reminderIdForAction")
             return
         }
         
@@ -44,8 +107,9 @@ class ReminderReceiver : BroadcastReceiver() {
         val enableDND = intent.getBooleanExtra("enable_dnd", false)
         val appPackageName = intent.getStringExtra("app_package_name")
         val isCloseReminder = intent.getBooleanExtra("is_close_reminder", false)
+        val isPreAlert = intent.getBooleanExtra("is_pre_alert", false)
 
-        Log.d("ReminderReceiver", "Reminder: $reminderTitle, Priority: $reminderPriority, DND: $enableDND, App: $appPackageName, Close: $isCloseReminder")
+        Log.d("ReminderReceiver", "Processing reminder: $reminderTitle, Priority: $reminderPriority, DND: $enableDND, App: $appPackageName, Close: $isCloseReminder, PreAlert: $isPreAlert")
 
         // Open app if package name is provided and this is not a close reminder
         if (appPackageName != null && !isCloseReminder) {
@@ -63,18 +127,24 @@ class ReminderReceiver : BroadcastReceiver() {
             }
         }
 
-        // Check if alarm sound is enabled
+        // Get user preferences
         val sharedPreferences = context.getSharedPreferences("reminder_prefs", MODE_PRIVATE)
         val alarmSoundEnabled = sharedPreferences.getBoolean("alarm_sound_enabled", true)
-        val forceRing = sharedPreferences.getBoolean("force_ring", false)  // User preference to force ring
+        val forceRingUrgent = sharedPreferences.getBoolean("force_ring_urgent", true)
+        val customSoundUri = sharedPreferences.getString("custom_sound_uri", null)
+        val useSystemDefault = sharedPreferences.getBoolean("use_system_default_sound", true)
 
-        // Check audio mode - if silent or vibrate, we should still vibrate
+        // Check audio mode
         val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
         val ringerMode = audioManager.ringerMode
         val isSilentOrVibrate = ringerMode == AudioManager.RINGER_MODE_SILENT || ringerMode == AudioManager.RINGER_MODE_VIBRATE
 
         val isUrgentOrHigh = reminderPriority == "URGENT" || reminderPriority == "HIGH"
-        val channelId = if (isUrgentOrHigh) NotificationHelper.URGENT_CHANNEL_ID else NotificationHelper.CHANNEL_ID
+        val channelId = when (reminderPriority) {
+            "URGENT" -> NotificationHelper.URGENT_CHANNEL_ID
+            "HIGH" -> NotificationHelper.HIGH_CHANNEL_ID
+            else -> NotificationHelper.CHANNEL_ID
+        }
 
         // Create notification with appropriate channel and settings
         val builder = NotificationCompat.Builder(context, channelId)
@@ -83,28 +153,25 @@ class ReminderReceiver : BroadcastReceiver() {
                 when (reminderPriority) {
                     "URGENT" -> "🚨 URGENT: $reminderTitle"
                     "HIGH" -> "⚠️ HIGH: $reminderTitle"
-                    else -> reminderTitle
+                    else -> if (isPreAlert) "⏰ Upcoming: $reminderTitle" else reminderTitle
                 }
             )
             .setContentText(if (reminderDescription.isNotEmpty()) reminderDescription else "Reminder")
             .setPriority(getNotificationPriority(reminderPriority))
             .setContentIntent(createPendingIntent(context, reminderId))
-            .setCategory(NotificationCompat.CATEGORY_ALARM)  // Important for heads-up display
+            .setCategory(NotificationCompat.CATEGORY_ALARM)
             .setVisibility(NotificationCompat.VISIBILITY_PUBLIC)
-            .setAutoCancel(true)  // Allow dismissal by swipe
-            .setOngoing(false)  // Don't make it ongoing by default
+            .setAutoCancel(true)
+            .setOngoing(false)
         
-        // Urgent/High priority: make persistent but allow dismissal
-        if (isUrgentOrHigh) {
-            builder.setOngoing(false)  // Allow dismissal
-                .setAutoCancel(true)  // Allow swipe to dismiss
-                .setCategory(NotificationCompat.CATEGORY_ALARM)
-                .setFullScreenIntent(createPendingIntent(context, reminderId), true)
-            
-            // Add dismiss action
+        // Add actions for main reminders (not pre-alerts)
+        if (!isPreAlert) {
             val dismissIntent = Intent(context, ReminderReceiver::class.java).apply {
                 putExtra("action", "dismiss")
-                putExtra("notification_id", reminderId.hashCode())
+                putExtra("reminder_id", reminderId)
+                putExtra("reminder_title", reminderTitle)
+                putExtra("reminder_description", reminderDescription)
+                putExtra("reminder_priority", reminderPriority)
             }
             val dismissPendingIntent = PendingIntent.getBroadcast(
                 context,
@@ -112,61 +179,63 @@ class ReminderReceiver : BroadcastReceiver() {
                 dismissIntent,
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
             )
-            builder.addAction(0, "Dismiss", dismissPendingIntent)
-        } else {
-            builder.setAutoCancel(true)
+            builder.addAction(0, "Stop", dismissPendingIntent)
+
+            val postponeIntent = Intent(context, ReminderReceiver::class.java).apply {
+                putExtra("action", "postpone_10m")
+                putExtra("reminder_id", reminderId)
+                putExtra("reminder_title", reminderTitle)
+                putExtra("reminder_description", reminderDescription)
+                putExtra("reminder_priority", reminderPriority)
+            }
+            val postponePendingIntent = PendingIntent.getBroadcast(
+                context,
+                reminderId.hashCode() + 101,
+                postponeIntent,
+                PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
+            )
+            builder.addAction(0, "Postpone 10m", postponePendingIntent)
         }
 
-        // Handle sound and vibration based on audio mode and user preferences
-        // All priorities vibrate by default
-        builder.setVibrate(longArrayOf(0, 500, 200, 500, 200, 500))
-        
-        if (alarmSoundEnabled) {
-            if (forceRing) {
-                // User wants to force ring regardless of silent mode
-                val alarmSoundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
-                    ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
-                builder.setSound(alarmSoundUri)
-            } else if (isSilentOrVibrate) {
-                // Silent or vibrate mode - vibrate only (no sound)
-                builder.setSound(null)
-            } else if (isUrgentOrHigh) {
-                // Urgent/High priority in normal mode - compulsory ring
-                val alarmSoundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
-                    ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
-                builder.setSound(alarmSoundUri)
-            } else {
-                // Normal priority in normal mode - notification sound
-                val defaultSoundUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
-                builder.setSound(defaultSoundUri)
-            }
-        } else {
-            // Sound disabled - still vibrate
-            builder.setVibrate(longArrayOf(0, 500, 200, 500, 200, 500))
+        // Handle urgent/high priority notifications
+        if (isUrgentOrHigh && !isPreAlert) {
+            builder.setCategory(NotificationCompat.CATEGORY_ALARM)
+                .setFullScreenIntent(createPendingIntent(context, reminderId), true)
         }
+
+        // Handle sound and vibration
+        val shouldPlaySound = alarmSoundEnabled && (!isSilentOrVibrate || (reminderPriority == "URGENT" && forceRingUrgent))
+        
+        if (shouldPlaySound) {
+            // Play custom sound for urgent reminders that should force ring
+            if (reminderPriority == "URGENT" && forceRingUrgent) {
+                playCustomSound(context, customSoundUri, useSystemDefault, true)
+            }
+        }
+
+        // Always vibrate (respecting system settings)
+        builder.setVibrate(
+            when (reminderPriority) {
+                "URGENT" -> longArrayOf(0, 1000, 300, 1000, 300, 1000)
+                "HIGH" -> longArrayOf(0, 500, 200, 500, 200, 500)
+                else -> longArrayOf(0, 300, 200, 300)
+            }
+        )
 
         val notification = builder.build()
 
-        // For urgent/high, use FLAG_INSISTENT to keep ringing until dismissed
-        if (isUrgentOrHigh) {
-            notification.flags = notification.flags or
-                android.app.Notification.FLAG_INSISTENT
+        // For urgent reminders, use FLAG_INSISTENT to keep ringing
+        if (reminderPriority == "URGENT" && !isPreAlert) {
+            notification.flags = notification.flags or android.app.Notification.FLAG_INSISTENT
         }
 
         // Show notification
         val notificationManager = NotificationManagerCompat.from(context)
         notificationManager.notify(reminderId.hashCode(), notification)
         
-        // Also vibrate directly if in silent mode (ensure it works even if notification vibration is blocked)
-        if (isSilentOrVibrate && alarmSoundEnabled) {
-            val vibrator = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
-                val vibratorManager = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
-                vibratorManager.defaultVibrator
-            } else {
-                @Suppress("DEPRECATION")
-                context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
-            }
-            vibrator.vibrate(longArrayOf(0, 500, 200, 500, 200, 500), -1)
+        // Force vibration for urgent reminders even in silent mode
+        if (reminderPriority == "URGENT" && isSilentOrVibrate) {
+            forceVibration(context)
         }
         
         // Restore DND if it was enabled
@@ -176,7 +245,70 @@ class ReminderReceiver : BroadcastReceiver() {
             Log.d("ReminderReceiver", "DND disabled after reminder")
         }
         
-        Log.d("ReminderReceiver", "Notification shown for priority: $reminderPriority, ringer mode: $ringerMode")
+        Log.d("ReminderReceiver", "Notification shown for priority: $reminderPriority, ringer mode: $ringerMode, force ring: $forceRingUrgent")
+    }
+
+    private fun playCustomSound(context: Context, customSoundUri: String?, useSystemDefault: Boolean, forcePlay: Boolean) {
+        try {
+            stopCustomSound() // Stop any existing sound
+            
+            val soundUri = when {
+                !customSoundUri.isNullOrEmpty() -> Uri.parse(customSoundUri)
+                useSystemDefault -> RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+                    ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+                else -> RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+                    ?: RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+            }
+            
+            mediaPlayer = MediaPlayer().apply {
+                setDataSource(context, soundUri)
+                
+                if (forcePlay) {
+                    // Force play at maximum volume for urgent reminders
+                    val audioManager = context.getSystemService(Context.AUDIO_SERVICE) as AudioManager
+                    val originalVolume = audioManager.getStreamVolume(AudioManager.STREAM_ALARM)
+                    val maxVolume = audioManager.getStreamMaxVolume(AudioManager.STREAM_ALARM)
+                    
+                    setAudioStreamType(AudioManager.STREAM_ALARM)
+                    audioManager.setStreamVolume(AudioManager.STREAM_ALARM, maxVolume, 0)
+                    
+                    // Restore original volume after 30 seconds
+                    stopSoundRunnable = Runnable {
+                        stopCustomSound()
+                        audioManager.setStreamVolume(AudioManager.STREAM_ALARM, originalVolume, 0)
+                    }
+                    handler.postDelayed(stopSoundRunnable!!, 30000) // 30 seconds
+                } else {
+                    setAudioStreamType(AudioManager.STREAM_NOTIFICATION)
+                }
+                
+                isLooping = forcePlay // Loop for urgent reminders
+                prepare()
+                start()
+                
+                Log.d("ReminderReceiver", "Custom sound started, force play: $forcePlay")
+            }
+        } catch (e: Exception) {
+            Log.e("ReminderReceiver", "Failed to play custom sound", e)
+        }
+    }
+
+    private fun forceVibration(context: Context) {
+        try {
+            val vibrator = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+                val vibratorManager = context.getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
+                vibratorManager.defaultVibrator
+            } else {
+                @Suppress("DEPRECATION")
+                context.getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+            }
+            
+            // Strong vibration pattern for urgent reminders
+            vibrator.vibrate(longArrayOf(0, 1000, 300, 1000, 300, 1000), -1)
+            Log.d("ReminderReceiver", "Force vibration triggered")
+        } catch (e: Exception) {
+            Log.e("ReminderReceiver", "Failed to force vibration", e)
+        }
     }
 
     private fun getNotificationPriority(priority: String): Int {

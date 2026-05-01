@@ -21,8 +21,16 @@ object ThemeManager {
     fun getThemeForUser(
         tier: UserTier,
         selectedThemeId: String? = null,
-        context: Context? = null
+        context: Context? = null,
+        forceDark: Boolean = false
     ): ColorScheme {
+        if (forceDark) {
+            return when (tier) {
+                UserTier.GUEST -> guestDarkTheme()
+                UserTier.LOGGED_IN -> loggedInDarkTheme(context)
+                UserTier.PREMIUM -> premiumTheme(selectedThemeId)
+            }
+        }
         return when (tier) {
             UserTier.GUEST -> guestTheme()
             UserTier.LOGGED_IN -> loggedInTheme(context)
@@ -64,6 +72,33 @@ object ThemeManager {
             tertiary = timeBasedAccent,
             primaryContainer = userProfileColor.copy(alpha = 0.12f),
             onPrimaryContainer = userProfileColor
+        )
+    }
+
+    private fun guestDarkTheme(): ColorScheme {
+        return darkColorScheme(
+            primary = Color(0xFF90A4AE),
+            secondary = Color(0xFF607D8B),
+            background = Color(0xFF0F1214),
+            surface = Color(0xFF161A1D),
+            onSurface = Color(0xFFE8EAED),
+            primaryContainer = Color(0xFF1E2930),
+            onPrimaryContainer = Color(0xFFD5E3EA)
+        )
+    }
+
+    private fun loggedInDarkTheme(context: Context?): ColorScheme {
+        val userProfileColor = getUserProfileColor(context)
+        val accent = getTimeBasedAccent()
+        return darkColorScheme(
+            primary = userProfileColor.copy(alpha = 0.9f),
+            secondary = getComplementaryColor(userProfileColor).copy(alpha = 0.85f),
+            background = Color(0xFF0B1020),
+            surface = Color(0xFF131B2C),
+            onSurface = Color(0xFFE6ECFF),
+            tertiary = accent,
+            primaryContainer = userProfileColor.copy(alpha = 0.25f),
+            onPrimaryContainer = Color(0xFFE6ECFF)
         )
     }
     
@@ -154,10 +189,41 @@ object ThemeManager {
     fun getUserTier(currentUser: User?): UserTier {
         return if (currentUser != null) {
             // Check if user is premium (would check Firebase database or Play Billing)
-            val isPremium = currentUser.email?.contains("premium") == false // Placeholder logic
+            val isPremium = currentUser.isPremium
             if (isPremium) UserTier.PREMIUM else UserTier.LOGGED_IN
         } else {
             UserTier.GUEST
         }
     }
+    
+    /**
+     * Get available theme options for user tier
+     */
+    fun getAvailableThemes(tier: UserTier): List<ThemeOption> {
+        return when (tier) {
+            UserTier.GUEST -> listOf(
+                ThemeOption("light", "Light", "Clean and minimal"),
+                ThemeOption("dark", "Dark", "Easy on the eyes")
+            )
+            UserTier.LOGGED_IN -> listOf(
+                ThemeOption("light", "Light", "Clean and minimal"),
+                ThemeOption("dark", "Dark", "Easy on the eyes"),
+                ThemeOption("dynamic", "Dynamic", "Based on your profile")
+            )
+            UserTier.PREMIUM -> listOf(
+                ThemeOption("light", "Light", "Clean and minimal"),
+                ThemeOption("dark", "Dark", "Easy on the eyes"),
+                ThemeOption("dynamic", "Dynamic", "Based on your profile"),
+                ThemeOption("midnight", "Midnight", "Premium dark gradient"),
+                ThemeOption("sunset", "Sunset", "Warm premium theme"),
+                ThemeOption("ocean", "Ocean", "Cool premium theme")
+            )
+        }
+    }
+    
+    data class ThemeOption(
+        val id: String,
+        val name: String,
+        val description: String
+    )
 }
