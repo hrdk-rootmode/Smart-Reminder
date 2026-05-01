@@ -7,12 +7,14 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -26,11 +28,16 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.gestures.snapping.rememberSnapFlingBehavior
 import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.activity.ComponentActivity
+import android.content.res.Configuration
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
@@ -110,8 +117,10 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.draw.alpha
@@ -127,6 +136,8 @@ import com.groupflow.app.notification.NotificationHelper
 import com.groupflow.app.ui.viewmodel.ReminderViewModel
 import com.groupflow.app.MainActivity
 import java.text.SimpleDateFormat
+import java.time.LocalDate
+import java.time.YearMonth
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
@@ -780,7 +791,7 @@ fun GroupsScreen(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
 fun TasksScreen(
     viewModel: ReminderViewModel = androidx.lifecycle.viewmodel.compose.viewModel(),
@@ -794,6 +805,7 @@ fun TasksScreen(
     onDismissReports: () -> Unit = {}
 ) {
     val reminders by viewModel.getUserReminders().collectAsState(initial = emptyList<Reminder>())
+    val pagerState = rememberPagerState(pageCount = { 3 })
     val context = LocalContext.current
     val sharedPreferences = remember { context.getSharedPreferences("guest_prefs", android.content.Context.MODE_PRIVATE) }
     
@@ -1029,11 +1041,18 @@ fun TasksScreen(
     Scaffold(
         modifier = Modifier.fillMaxSize()
     ) { paddingValues ->
-        Column(
+        HorizontalPager(
+            state = pagerState,
             modifier = Modifier
                 .fillMaxSize()
                 .padding(paddingValues)
-        ) {
+        ) { page ->
+            when (page) {
+                0 -> {
+                    // Screen 1: Main Reminders List
+                    Column(
+                        modifier = Modifier.fillMaxSize()
+                    ) {
             // Filter chips - moved to top
             LazyRow(
                 modifier = Modifier
@@ -1548,26 +1567,40 @@ fun TasksScreen(
                     }
                 }
                 
-                // View All button at the bottom
+                // View All button at the bottom - now shows swipe hint
                 item {
-                    TextButton(
-                        onClick = onOpenCalendar,
+                    Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(vertical = 16.dp)
+                            .padding(vertical = 16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
                     ) {
-                        Icon(
-                            Icons.Default.DateRange,
-                            contentDescription = null,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
                         Text(
-                            "View All Reminders",
-                            style = MaterialTheme.typography.titleSmall,
-                            fontWeight = FontWeight.SemiBold
+                            "← Swipe left for Calendar & Schedule →",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.primary
                         )
                     }
+                }
+            }
+        }
+    } // End Screen 1 Column
+                } // End Screen 1 when branch
+                
+                1 -> {
+                    // Screen 2: Calendar & Progress View
+                    CalendarProgressScreen(
+                        reminders = reminders,
+                        viewModel = viewModel
+                    )
+                }
+                
+                2 -> {
+                    // Screen 3: Monthly Schedule Table
+                    MonthlyScheduleScreen(
+                        reminders = reminders,
+                        viewModel = viewModel
+                    )
                 }
             }
         }
@@ -1674,8 +1707,7 @@ fun TasksScreen(
                 }
             }
         }
-    }
-}
+} // Close TasksScreen function
 
 data class Quadruple<out A, out B, out C, out D>(
     val first: A,
@@ -4881,4 +4913,392 @@ fun CalendarViewDialog(
         }
     )
 }
+
+
+
+/**
+ * Screen 2: Calendar & Progress View
+ * Shows calendar with highlighted dates, progress stats, and reminders for selected date
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun CalendarProgressScreen(
+    reminders: List<Reminder>,
+    viewModel: ReminderViewModel
+) {
+    var selectedDate by remember { mutableStateOf<Long?>(null) }
+    
+    // Detect screen orientation and size
+    val configuration = LocalConfiguration.current
+    val isLandscape = configuration.orientation == Configuration.ORIENTATION_LANDSCAPE
+    val screenWidth = configuration.screenWidthDp.dp
+    val isTablet = screenWidth > 600.dp
+    
+    // Get dates with reminders for highlighting
+    val datesWithReminders = remember(reminders) {
+        reminders.map { reminder ->
+            val cal = Calendar.getInstance().apply { timeInMillis = reminder.triggerTime }
+            cal.set(Calendar.HOUR_OF_DAY, 0)
+            cal.set(Calendar.MINUTE, 0)
+            cal.set(Calendar.SECOND, 0)
+            cal.set(Calendar.MILLISECOND, 0)
+            cal.timeInMillis
+        }.toSet()
+    }
+    
+    // Filter reminders for selected date
+    val selectedDateReminders = remember(reminders, selectedDate) {
+        selectedDate?.let { date ->
+            val selectedCal = Calendar.getInstance().apply { timeInMillis = date }
+            reminders.filter { reminder ->
+                val reminderCal = Calendar.getInstance().apply { timeInMillis = reminder.triggerTime }
+                selectedCal.get(Calendar.YEAR) == reminderCal.get(Calendar.YEAR) &&
+                selectedCal.get(Calendar.DAY_OF_YEAR) == reminderCal.get(Calendar.DAY_OF_YEAR)
+            }
+        } ?: emptyList()
+    }
+    
+    // Calculate progress stats
+    val totalReminders = reminders.size
+    val completedReminders = reminders.count { it.status.name == "COMPLETED" }
+    val pendingReminders = totalReminders - completedReminders
+    val completionRate = if (totalReminders > 0) (completedReminders.toFloat() / totalReminders * 100).toInt() else 0
+    
+    // Priority breakdown
+    val urgentPriority = reminders.count { it.priority == ReminderPriority.URGENT }
+    val highPriority = reminders.count { it.priority == ReminderPriority.HIGH }
+    val mediumPriority = reminders.count { it.priority == ReminderPriority.MEDIUM }
+    val lowPriority = reminders.count { it.priority == ReminderPriority.LOW }
+    
+    // Adaptive layout based on orientation
+    if (isLandscape || isTablet) {
+        // Landscape/Tablet: Two-column layout
+        Row(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(16.dp),
+            horizontalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            // Left column: Stats and Calendar
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                // Header
+                Text(
+                    "Calendar & Progress",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
+                
+                // Progress Stats Cards
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    StatsCard(
+                        value = "$completionRate%",
+                        label = "Completed",
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.weight(1f)
+                    )
+                    StatsCard(
+                        value = "$pendingReminders",
+                        label = "Pending",
+                        color = MaterialTheme.colorScheme.secondary,
+                        modifier = Modifier.weight(1f)
+                    )
+                    StatsCard(
+                        value = "$totalReminders",
+                        label = "Total",
+                        color = MaterialTheme.colorScheme.tertiary,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+                
+                // Priority Breakdown
+                PriorityBreakdownCard(urgentPriority, highPriority, mediumPriority, lowPriority)
+                
+                // Calendar
+                Text(
+                    "Select a date",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold
+                )
+                
+                CalendarView(
+                    selectedDate = selectedDate,
+                    onDateSelected = { date ->
+                        selectedDate = if (selectedDate == date) null else date
+                    },
+                    datesWithReminders = datesWithReminders,
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
+            
+            // Right column: Reminders list
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight()
+            ) {
+                RemindersList(selectedDate, selectedDateReminders)
+            }
+        }
+    } else {
+        // Portrait: Single column layout
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            // Header with swipe hint
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "Calendar & Progress",
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold
+                )
+                Text(
+                    "← Swipe →",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary
+                )
+            }
+            
+            // Progress Stats Cards
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                StatsCard(
+                    value = "$completionRate%",
+                    label = "Completed",
+                    color = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.weight(1f)
+                )
+                StatsCard(
+                    value = "$pendingReminders",
+                    label = "Pending",
+                    color = MaterialTheme.colorScheme.secondary,
+                    modifier = Modifier.weight(1f)
+                )
+                StatsCard(
+                    value = "$totalReminders",
+                    label = "Total",
+                    color = MaterialTheme.colorScheme.tertiary,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            
+            // Priority Breakdown
+            PriorityBreakdownCard(urgentPriority, highPriority, mediumPriority, lowPriority)
+            
+            // Calendar
+            Text(
+                "Select a date to view reminders",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold
+            )
+            
+            CalendarView(
+                selectedDate = selectedDate,
+                onDateSelected = { date ->
+                    selectedDate = if (selectedDate == date) null else date
+                },
+                datesWithReminders = datesWithReminders,
+                modifier = Modifier.fillMaxWidth()
+            )
+            
+            // Reminders for selected date
+            RemindersList(selectedDate, selectedDateReminders)
+        }
+    }
+}
+
+@Composable
+private fun StatsCard(
+    value: String,
+    label: String,
+    color: Color,
+    modifier: Modifier = Modifier
+) {
+    Card(
+        modifier = modifier,
+        colors = CardDefaults.cardColors(containerColor = color.copy(alpha = 0.1f))
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                value,
+                style = MaterialTheme.typography.headlineMedium,
+                fontWeight = FontWeight.Bold,
+                color = color
+            )
+            Text(
+                label,
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
+    }
+}
+
+@Composable
+private fun PriorityBreakdownCard(
+    urgentPriority: Int,
+    highPriority: Int,
+    mediumPriority: Int,
+    lowPriority: Int
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            Text(
+                "Priority Breakdown",
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold
+            )
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceEvenly
+            ) {
+                PriorityChip("Urgent", urgentPriority, Color(0xFFD32F2F))
+                PriorityChip("High", highPriority, Color(0xFFEF5350))
+                PriorityChip("Medium", mediumPriority, Color(0xFFFF9800))
+                PriorityChip("Low", lowPriority, Color(0xFF66BB6A))
+            }
+        }
+    }
+}
+
+@Composable
+private fun RemindersList(
+    selectedDate: Long?,
+    selectedDateReminders: List<Reminder>
+) {
+    if (selectedDate != null) {
+        Text(
+            "Reminders for ${SimpleDateFormat("MMM dd, yyyy", Locale.getDefault()).format(Date(selectedDate))}",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.SemiBold
+        )
+        
+        Spacer(modifier = Modifier.height(8.dp))
+        
+        if (selectedDateReminders.isEmpty()) {
+            Card(
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Text(
+                    "No reminders for this date",
+                    modifier = Modifier.padding(16.dp),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        } else {
+            Column(
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                selectedDateReminders.forEach { reminder ->
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = when (reminder.priority) {
+                                ReminderPriority.URGENT -> Color(0xFFFFCDD2)
+                                ReminderPriority.HIGH -> Color(0xFFFFEBEE)
+                                ReminderPriority.MEDIUM -> Color(0xFFFFF3E0)
+                                ReminderPriority.LOW -> Color(0xFFE8F5E9)
+                            }
+                        )
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    reminder.title,
+                                    style = MaterialTheme.typography.titleSmall,
+                                    fontWeight = FontWeight.SemiBold
+                                )
+                                Text(
+                                    SimpleDateFormat("hh:mm a", Locale.getDefault()).format(Date(reminder.triggerTime)),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Icon(
+                                if (reminder.status.name == "COMPLETED") Icons.Default.CheckCircle else Icons.Default.Notifications,
+                                contentDescription = null,
+                                tint = if (reminder.status.name == "COMPLETED") Color(0xFF4CAF50) else MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    } else {
+        Card(
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Text(
+                "Tap on a date to view reminders",
+                modifier = Modifier.padding(16.dp),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center
+            )
+        }
+    }
+}
+
+@Composable
+fun PriorityChip(label: String, count: Int, color: Color) {
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = color.copy(alpha = 0.2f)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .background(color, CircleShape)
+            )
+            Text(
+                label,
+                style = MaterialTheme.typography.bodySmall,
+                fontWeight = FontWeight.Medium
+            )
+            Text(
+                "($count)",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
 
